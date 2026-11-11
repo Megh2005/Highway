@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kolkata Roads</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root { --ink: #14202b; --muted: #5b6b79; --page-w: 281mm; --page-h: 197mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; color: var(--ink); font: 13px/1.4 "Segoe UI", system-ui, Roboto, sans-serif;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #map { position: fixed; inset: 0; background: #e5e9ec; }
+  .leaflet-tile-pane { filter: saturate(.4) brightness(1.05) contrast(.95); }
+
+  .road-label { overflow: visible; }
+  .road-label b { display: block; width: max-content; white-space: nowrap; cursor: pointer;
+    font: 700 9px/9px "Segoe UI", Arial, sans-serif; letter-spacing: .2px;
+    text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff, 0 0 2px #fff; }
+  .end-point span { display: block; width: 14px; height: 14px; border: 2px solid; border-radius: 50%; background: #fff;
+    font: 700 8px/10px "Segoe UI", Arial, sans-serif; text-align: center; cursor: pointer; }
+  .end-point.draft span { width: 22px; height: 22px; font-size: 11px; line-height: 18px; cursor: grab; border-width: 3px; }
+
+  .box { background: rgba(255,255,255,.95); border: 1px solid #333; }
+  .legend { padding: 5px 8px 4px; font-size: 10px; line-height: 1.5; color: #111; max-height: 55vh; overflow: auto; }
+  .legend h4 { margin: 0 0 2px; padding-bottom: 2px; border-bottom: 1px solid #999; font-size: 10.5px; }
+  .legend div { white-space: nowrap; }
+  .legend i { display: inline-block; width: 18px; height: 4px; margin-right: 5px; vertical-align: middle; }
+  .north { padding: 2px 7px 0; text-align: center; font: 700 11px/1.1 "Segoe UI", sans-serif; }
+  .north svg { display: block; margin: 0 auto; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 4px; border-radius: 3px; max-width: calc(100vw - 90px); }
+  button, select, input { font: inherit; font-size: 12px; padding: 3px 6px; border: 1px solid #555; border-radius: 2px; background: #fff; color: var(--ink); }
+  button { cursor: pointer; font-weight: 600; }
+  .primary { background: var(--ink); color: #fff; }
+  .toolbar span { font-size: 11px; color: var(--muted); }
+  :focus-visible { outline: 2px solid #2563eb; }
+
+  .leaflet-popup-content-wrapper { border-radius: 4px; padding-top: 0; }
+  .leaflet-popup-content { margin: 0 12px 10px; font-family: inherit; }
+  .info { min-width: 260px; }
+  .info h3 { margin: -1px -1px 8px; padding: 7px 10px; color: #fff; font-size: 15px; }
+  .info table { border-collapse: collapse; width: 100%; }
+  .info td { padding: 3px 0; vertical-align: top; font-size: 12.5px; }
+  .info td:first-child { color: var(--muted); padding-right: 10px; white-space: nowrap; }
+  .info .note { color: #b45309; }
+  .info a { color: #1d4ed8; }
+  .info .actions { margin-top: 8px; display: flex; gap: 6px; }
+  .swatch { display: inline-block; width: 11px; height: 11px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+
+  /* ---------- Add / edit highway panel ---------- */
+  .panel { display: none; position: fixed; z-index: 1200; top: 52px; left: 10px; width: min(330px, calc(100vw - 20px));
+    max-height: calc(100vh - 70px); overflow: auto; padding: 10px; border-radius: 3px; box-shadow: 0 4px 16px rgba(0,0,0,.25); }
+  .panel.open { display: block; }
+  .panel h4 { margin: 0 0 8px; font-size: 14px; }
+  .panel input { width: 100%; }
+  .panel input[type=color] { height: 28px; padding: 1px; }
+  .panel label { display: block; margin-top: 6px; color: var(--muted); font-size: 11px; }
+  .panel .row { display: flex; gap: 6px; margin-top: 10px; justify-content: flex-end; }
+  .panel small { display: block; margin-top: 8px; color: var(--muted); }
+  #p-msg { margin-top: 6px; font-size: 12px; color: var(--muted); }
+  #p-msg.err { color: #b91c1c; }
+  #fields { display: none; }
+  #fields.show { display: block; }
+  #results { list-style: none; margin: 2px 0 0; padding: 0; max-height: 220px; overflow: auto; border: 1px solid #bbb; background: #fff; }
+  #results:empty { display: none; }
+  #results li { padding: 5px 8px; cursor: pointer; border-bottom: 1px solid #eee; }
+  #results li:hover, #results li:focus { background: #eef3fb; outline: none; }
+  #results li small { display: inline; margin-left: 6px; }
+
+  body.print-mode { height: auto; }
+  body.print-mode #map { position: relative; inset: auto; width: var(--page-w); height: var(--page-h); border: 1px solid #000; }
+  body.print-mode .toolbar, body.print-mode .leaflet-control-zoom, body.print-mode .panel { display: none !important; }
+</style>
+<style id="page-rule"></style>
+</head>
+
+<body>
+<div id="map" aria-label="Map of Kolkata roads"></div>
+
+<div class="box panel" id="panel">
+  <h4 id="p-title">Add highway</h4>
+  <input id="q" type="search" placeholder="Search Kolkata highway, e.g. Bose, Bypass, Park" autocomplete="off" aria-label="Search highway">
+  <ul id="results"></ul>
+  <div id="p-msg"></div>
+  <div id="fields">
+    <label>Code<input id="f-code"></label>
+    <label>Name<input id="f-name"></label>
+    <label>Colour<input id="f-color" type="color"></label>
+    <label>Start point<input id="f-s"></label>
+    <label>End point<input id="f-e"></label>
+    <small>Start (S) and end (E) are marked automatically. Drag either marker to adjust it.</small>
+    <div class="row"><button id="f-swap">Swap S / E</button><button id="f-cancel">Cancel</button><button id="f-save" class="primary">Save highway</button></div>
+  </div>
+  <div class="row" id="only-cancel"><button id="f-cancel2">Close</button></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
+import { getFirestore, collection, onSnapshot, addDoc, setDoc, deleteDoc, doc }
+  from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
+
+/* =====================================================================
+   1. CONFIGURATION + FIREBASE
+   ===================================================================== */
+const firebaseConfig = {
+  apiKey: "AIzaSyBUBi_4O2qIGqDKje1gH5OvaZA4AT0oS_M",
+  authDomain: "zero-ops-citadel.firebaseapp.com",
+  projectId: "zero-ops-citadel",
+  storageBucket: "zero-ops-citadel.firebasestorage.app",
+  messagingSenderId: "705456952090",
+  appId: "1:705456952090:web:78b3965a48d23073fd92a3"
+};
+const db = getFirestore(initializeApp(firebaseConfig));
+const COLLECTION = 'highways';   // custom roads are stored here
+
+const CONFIG = {
+  tileUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  attribution: 'Basemap © OpenStreetMap contributors',
+  routers: [
+    'https://router.project-osrm.org/route/v1/driving/',
+    'https://routing.openstreetmap.de/routed-car/route/v1/driving/'
+  ],
+  nominatim: 'https://nominatim.openstreetmap.org',   // search + reverse geocoding (built for browser use, CORS enabled)
+  viewbox: '88.20,22.80,88.50,22.40',            // Kolkata search area (west,north,east,south)
+  highwayTypes: 'motorway|trunk|primary|secondary|tertiary',
+  palette: ['#DB2777', '#0891B2', '#65A30D', '#7C3AED', '#EA580C', '#0F766E', '#BE123C', '#4338CA', '#A16207', '#475569'],
+  labelPositions: [0.5],
+  fitPadding: [50, 50],
+  paperMm: { A4: [210, 297], A3: [297, 420], A2: [420, 594], Letter: [216, 279] },
+  printMarginMm: 6,
+  deviationRatio: 1.8
+};
+
+/* =====================================================================
+   2. ROAD DATA  –  built-in roads (custom ones are added from Firestore)
+   ===================================================================== */
+const ROADS = [
+  { c: 'R1',  n: 'E. M. Bypass',             kn: 'Navy blue',   k: '#1A365D', s: 'Ultadanga crossing',            sc: [22.591411, 88.393388], e: 'Kamalgazi crossing',           ec: [22.449438, 88.390871] },
+  { c: 'R2',  n: 'A. J. C. Bose Road',       kn: 'Red',         k: '#C53030', s: 'Hastings (Strand Rd. Junction)', sc: [22.571021, 88.343134], e: 'Sealdah Railway Station',      ec: [22.567775, 88.371010] },
+  { c: 'R3',  n: 'A. P. C. Road',            kn: 'Dark green',  k: '#22543D', s: 'Shyambazar 5 Point Crossing',   sc: [22.601965, 88.373761], e: 'Sealdah Railway Station',      ec: [22.567775, 88.371010] },
+  { c: 'R4',  n: 'Rashbehari Avenue',        kn: 'Orange',      k: '#C05621', s: 'Chetla',                        sc: [22.521088, 88.372279], e: 'Ruby Crossing',                ec: [22.513390, 88.401830] },
+  { c: 'R5',  n: 'Diamond Harbour Road',     kn: 'Purple',      k: '#6B46C1', s: 'Kidderpore',                    sc: [22.536323, 88.316654], e: 'Joka',                         ec: [22.453655, 88.302345] },
+  { c: 'R6',  n: 'B. T. Road',               kn: 'Teal',        k: '#0D9488', s: 'Shyambazar 5pt Crossing',       sc: [22.601965, 88.373761], e: 'Barrackpore',                  ec: [22.761660, 88.366193] },
+  { c: 'R7',  n: 'VIP Road',                 kn: 'Magenta',     k: '#9D174D', s: 'Ultadanga VIP Crossing',        sc: [22.591436, 88.393372], e: 'Airport Gate-1',               ec: [22.643113, 88.431225] },
+  { c: 'R8',  n: 'Park Street',              kn: 'Olive green', k: '#4D7C0F', s: 'Esplanade',                     sc: [22.555232, 88.350087], e: 'Park Circus 7 Point crossing', ec: [22.543295, 88.366006] },
+  { c: 'R9',  n: 'Jessore Road',             kn: 'Amber',       k: '#B45309', s: 'Shyambazar 5 Point Crossing',   sc: [22.601965, 88.373761], e: 'Airport Gate 1',               ec: [22.643113, 88.431225] },
+  { c: 'R10', n: 'Prince Anwar Shah Road',   kn: 'Blue',        k: '#2563EB', s: 'Mahanayak Uttam Kumar Metro',   sc: [22.494690, 88.345175], e: 'Kalikapur Connector',          ec: [22.504348, 88.400825] },
+  { c: 'R11', n: 'Gariahat Road',            kn: 'Brown',       k: '#78350F', s: 'Ballygunge Phari',              sc: [22.528291, 88.365932], e: 'Jadavpur Police Station',      ec: [22.502913, 88.367744] },
+  { c: 'R12', n: 'J. B. S. Haldane Avenue',  kn: 'Slate grey',  k: '#374151', s: 'Park Circus',                   sc: [22.541490, 88.384097], e: 'Dhapa',                        ec: [22.542827, 88.398010] }
+];
+
+/* =====================================================================
+   3. HELPERS
+   ===================================================================== */
+const $ = (selector) => document.querySelector(selector);
+const fmtCoord = (p) => p[0].toFixed(5) + ', ' + p[1].toFixed(5);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const toObj = (p) => ({ lat: p[0], lng: p[1] });
+const toArr = (o) => [o.lat, o.lng];
+
+function darken(hex, factor = 0.6) {
+  return '#' + [1, 3, 5].map((i) => Math.round(parseInt(hex.substr(i, 2), 16) * factor).toString(16).padStart(2, '0')).join('');
+}
+
+function pointAlong(path, f) {
+  const cumulative = [0];
+  for (let i = 1; i < path.length; i++) cumulative.push(cumulative[i - 1] + map.distance(path[i - 1], path[i]));
+  const target = cumulative[cumulative.length - 1] * f;
+  let i = 1;
+  while (i < cumulative.length - 1 && cumulative[i] < target) i++;
+  const u = (target - cumulative[i - 1]) / (cumulative[i] - cumulative[i - 1] || 1);
+  return [path[i - 1][0] + (path[i][0] - path[i - 1][0]) * u, path[i - 1][1] + (path[i][1] - path[i - 1][1]) * u];
+}
+
+/* =====================================================================
+   4. MAP + CONTROLS
+   ===================================================================== */
+const map = L.map('map', { renderer: L.svg({ padding: 0.5 }), zoomSnap: 0.25, zoomDelta: 0.5, minZoom: 9, maxZoom: 19 });
+const basemap = L.tileLayer(CONFIG.tileUrl, { maxZoom: 19, crossOrigin: true, attribution: CONFIG.attribution }).addTo(map);
+L.control.scale({ imperial: false, position: 'bottomright' }).addTo(map);
+
+function addControl(position, build) {
+  const control = L.control({ position });
+  control.onAdd = () => { const el = build(); L.DomEvent.disableClickPropagation(el); return el; };
+  return control.addTo(map);
+}
+
+let legendEl;
+addControl('bottomleft', () => (legendEl = L.DomUtil.create('div', 'box legend')));
+function renderLegend() {
+  legendEl.innerHTML = '<h4>Legend</h4>' + ROADS.map((r) => `<div><i style="background:${r.k}"></i><b>${esc(r.c)}</b> ${esc(r.n)}</div>`).join('');
+}
+
+addControl('topright', () => {
+  const el = L.DomUtil.create('div', 'box north');
+  el.innerHTML = '<svg width="18" height="26" viewBox="0 0 18 26"><path d="M9 1 16 24 9 18 2 24Z" fill="#111"/></svg>N';
+  return el;
+});
+
+addControl('topleft', () => {
+  const el = L.DomUtil.create('div', 'box toolbar');
+  el.innerHTML =
+    '<button id="btn-add" title="Add a new highway">+ Add highway</button>' +
+    '<button id="btn-print" class="primary" title="Print or save as PDF">Print</button>' +
+    '<select id="paper" aria-label="Paper size">' + Object.keys(CONFIG.paperMm).map((p) => `<option>${p}</option>`).join('') + '</select>' +
+    '<select id="orient" aria-label="Orientation"><option value="l">Landscape</option><option value="p">Portrait</option></select>' +
+    '<button id="btn-fit" title="Fit all roads">Fit</button><span id="status"></span>';
+  return el;
+});
+
+/* =====================================================================
+   5. ROUTING
+   ===================================================================== */
+async function fetchRoute(road) {
+  const waypoints = [road.sc, ...(road.v || []), road.ec];
+  const cacheKey = 'kolkata-rr:' + road.c + JSON.stringify(waypoints);
+  try { const cached = JSON.parse(localStorage.getItem(cacheKey)); if (cached) return cached; } catch (_) {}
+
+  const query = waypoints.map((p) => p[1] + ',' + p[0]).join(';') + '?overview=full&geometries=geojson';
+  for (const server of CONFIG.routers) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await fetch(server + query, { signal: AbortSignal.timeout(15000) });
+        const route = (await response.json()).routes[0];
+        const result = { path: route.geometry.coordinates.map(([lng, lat]) => [lat, lng]), distance: route.distance, duration: route.duration };
+        try { localStorage.setItem(cacheKey, JSON.stringify(result)); } catch (_) {}
+        return result;
+      } catch (_) { await sleep(800); }
+    }
+  }
+  throw new Error('Routing failed for ' + road.c);
+}
+
+/* =====================================================================
+   6. DRAWING + ROAD LIST
+   ===================================================================== */
+let selected = null, draft = null, pending = 0, dbNote = '', firstLoad = true, queue = Promise.resolve();
+
+function setHighlight(road, on) {
+  if (!road.line) return;
+  road.line.setStyle({ weight: on ? 5 : 3 });
+  road.outline.setStyle({ weight: on ? 8 : 5.5 });
+}
+
+function drawRoad(road, path, isStraightLine) {
+  const group = road.group;
+  group.clearLayers();
+  road.path = path;
+  road.isStraightLine = isStraightLine;
+
+  const onClick = (layer) => layer.on('click', (e) => { L.DomEvent.stop(e); selectRoad(road, e.latlng); });
+  const stroke = { lineCap: 'round', lineJoin: 'round', opacity: 1 };
+
+  road.outline = onClick(L.polyline(path, { ...stroke, color: darken(road.k), weight: 5.5 }).addTo(group));
+  road.line    = onClick(L.polyline(path, { ...stroke, color: road.k, weight: 3 }).addTo(group));
+  road.line.bindTooltip(`${road.c} · ${road.n}`, { sticky: true });
+
+  [['Start', 'S', path[0], road.s], ['End', 'E', path[path.length - 1], road.e]].forEach(([label, letter, point, name]) => {
+    const icon = L.divIcon({ className: 'end-point', iconSize: [14, 14], iconAnchor: [7, 7],
+      html: `<span style="border-color:${road.k};color:${road.k}">${letter}</span>` });
+    onClick(L.marker(point, { icon, zIndexOffset: 500 }).bindTooltip(`${road.c} ${label}: ${name}`).addTo(group));
+  });
+
+  CONFIG.labelPositions.forEach((f) => {
+    const a = map.latLngToLayerPoint(pointAlong(path, Math.max(f - 0.015, 0)));
+    const b = map.latLngToLayerPoint(pointAlong(path, Math.min(f + 0.015, 1)));
+    let angle = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+    if (angle > 90 || angle < -90) angle += 180;
+    const icon = L.divIcon({ className: 'road-label', iconSize: [0, 0],
+      html: `<b style="color:${road.k};transform:translate(-50%,-50%) rotate(${angle}deg) translateY(-7px)">${esc(road.c)}</b>` });
+    onClick(L.marker(pointAlong(path, f), { icon }).addTo(group));
+  });
+
+  if (selected === road) setHighlight(road, true);
+}
+
+function fitAll() { map.fitBounds(L.latLngBounds(ROADS.flatMap((r) => r.path)), { padding: CONFIG.fitPadding }); }
+
+function setStatus() {
+  $('#status').textContent = dbNote || (pending ? `Routing ${pending} left…` :
+    ROADS.some((r) => r.isStraightLine) ? 'Routing failed for some roads – check internet' : '');
+}
+
+/** Roads are routed one at a time so the free routing servers are not overloaded. */
+function enqueue(road) {
+  pending++; setStatus();
+  queue = queue.then(async () => {
+    if (ROADS.includes(road)) {
+      try { const rt = await fetchRoute(road); road.distance = rt.distance; road.duration = rt.duration; drawRoad(road, rt.path, false); }
+      catch (_) { drawRoad(road, [road.sc, road.ec], true); }
+    }
+    pending--; setStatus();
+    if (firstLoad && !selected && (pending % 4 === 0)) fitAll();
+    if (!pending) firstLoad = false;
+  });
+}
+
+function addRoad(road) {
+  road.group = L.featureGroup().addTo(map);
+  road.path = [road.sc, road.ec];
+  ROADS.push(road);
+  enqueue(road);
+}
+
+function removeRoad(road) {
+  if (selected === road) selected = null;
+  map.closePopup();
+  road.group.remove();
+  ROADS.splice(ROADS.indexOf(road), 1);
+}
+
+/* =====================================================================
+   7. ROAD DETAILS (click)
+   ===================================================================== */
+function selectRoad(road, at) {
+  if (selected && selected !== road) setHighlight(selected, false);
+  selected = road;
+  setHighlight(road, true);
+  road.group.eachLayer((layer) => layer.bringToFront && layer.bringToFront());
+
+  const row = (label, value) => `<tr><td>${label}</td><td>${value}</td></tr>`;
+  const straight = map.distance(road.sc, road.ec);
+  const deviates = road.distance && road.distance / straight > CONFIG.deviationRatio;
+  const maps = `https://www.google.com/maps/dir/?api=1&origin=${road.sc}&destination=${road.ec}`;
+
+  const popup = L.popup({ maxWidth: 340 }).setLatLng(at || pointAlong(road.path, 0.5)).setContent(
+    `<div class="info"><h3 style="background:${road.k}">${esc(road.c)} · ${esc(road.n)}</h3><table>` +
+    row('Road code', `<b>${esc(road.c)}</b>`) +
+    row('Colour', `<span class="swatch" style="background:${road.k}"></span>${esc(road.kn)} (${road.k})`) +
+    row('Start', `${esc(road.s)}<br><small>${fmtCoord(road.sc)}</small>`) +
+    row('End', `${esc(road.e)}<br><small>${fmtCoord(road.ec)}</small>`) +
+    row('Length', road.distance ? (road.distance / 1000).toFixed(1) + ' km' : '–') +
+    row('Drive time', road.duration ? '≈ ' + Math.round(road.duration / 60) + ' min (no traffic)' : '–') +
+    row('Path', road.isStraightLine ? 'Straight line (routing unavailable)' : 'Routed along the street network') +
+    (deviates ? row('Check', '<span class="note">Routed path is much longer than the straight distance – verify the coordinates or add via-points.</span>') : '') +
+    `</table><a href="${maps}" target="_blank" rel="noopener">Open in Google Maps</a>` +
+    (road.custom ? '<div class="actions"><button id="edit-road">Edit</button><button id="del-road">Delete</button></div>' : '') +
+    '</div>').openOn(map);
+
+  const el = popup.getElement();
+  el.querySelector('#edit-road')?.addEventListener('click', () => openPanel(road));
+  el.querySelector('#del-road')?.addEventListener('click', async () => {
+    if (!confirm(`Delete ${road.c} · ${road.n}?`)) return;
+    try { await deleteDoc(doc(db, COLLECTION, road.id)); } catch (err) { alert('Could not delete: ' + err.message); }
+  });
+}
+map.on('click', () => { if (selected) { setHighlight(selected, false); selected = null; } });
+
+/* =====================================================================
+   8. FIRESTORE SYNC  (custom highways appear on every device in real time)
+   ===================================================================== */
+const sig = (r) => JSON.stringify([r.c, r.n, r.k, r.s, r.e, r.sc, r.ec, r.v]);
+const fromDoc = (d) => {
+  const x = d.data();
+  return { id: d.id, custom: true, c: x.c, n: x.n, kn: x.kn || 'Custom', k: x.k, s: x.s, e: x.e,
+    sc: toArr(x.sc), ec: toArr(x.ec), v: (x.v || []).map(toArr) };
+};
+
+onSnapshot(collection(db, COLLECTION), (snap) => {
+  dbNote = '';
+  const ids = new Set(snap.docs.map((d) => d.id));
+  ROADS.filter((r) => r.custom && !ids.has(r.id)).forEach(removeRoad);
+  snap.docs.forEach((d) => {
+    const next = fromDoc(d), old = ROADS.find((r) => r.id === next.id);
+    if (old) { if (sig(old) === sig(next)) return; removeRoad(old); }
+    addRoad(next);
+  });
+  renderLegend(); setStatus();
+}, (err) => { dbNote = err.code === 'permission-denied' ? 'Database: permission denied – check Firestore rules' : 'Database error: ' + err.message; setStatus(); });
+
+/* =====================================================================
+   9. ADD / EDIT HIGHWAY  (search → dropdown → start & end marked automatically)
+   ===================================================================== */
+const draftLayer = L.layerGroup().addTo(map);
+const roadType = new RegExp('^(' + CONFIG.highwayTypes + ')$');
+const isRoad = (r) => r.category === 'highway' && roadType.test(r.type);
+async function nominatim(params) {
+  const url = `${CONFIG.nominatim}/search?format=jsonv2&bounded=1&viewbox=${CONFIG.viewbox}&limit=40&${params}`;
+  const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  if (!response.ok) throw new Error('Search service returned ' + response.status);
+  return response.json();
+}
+const nextCode = () => 'R' + (Math.max(0, ...ROADS.map((r) => parseInt(String(r.c).replace(/\D/g, '')) || 0)) + 1);
+const nextColor = () => CONFIG.palette.find((c) => !ROADS.some((r) => r.k.toLowerCase() === c.toLowerCase())) || '#000000';
+
+function setMsg(text, isError) { const m = $('#p-msg'); m.textContent = text || ''; m.className = isError ? 'err' : ''; }
+
+function draftMarker(letter, pos, name) {
+  const icon = L.divIcon({ className: 'end-point draft', iconSize: [22, 22], iconAnchor: [11, 11],
+    html: `<span style="border-color:#000;color:#000">${letter}</span>` });
+  const m = L.marker(pos, { icon, draggable: true, zIndexOffset: 1500 }).bindTooltip(name + ' – drag to adjust').addTo(draftLayer);
+  m.on('dragend', () => { if (draft) draft.via = []; });   // moved by hand: the old via-points no longer apply
+  return m;
+}
+
+function showDraft(sc, ec, via, lines) {
+  draftLayer.clearLayers();
+  draft.via = via || [];
+  draft.lines = (lines || []).map((l) => L.polyline(l, { color: $('#f-color').value, weight: 4, dashArray: '6 6', opacity: .9, interactive: false }).addTo(draftLayer));
+  draft.mS = draftMarker('S', sc, 'Start');
+  draft.mE = draftMarker('E', ec, 'End');
+  $('#fields').classList.add('show');
+  $('#only-cancel').style.display = 'none';
+  map.fitBounds(L.latLngBounds([sc, ec, ...(lines || []).flat()]), { padding: [60, 60], maxZoom: 16 });
+}
+
+function openPanel(road) {
+  closePanel();
+  map.closePopup();
+  draft = { id: road?.id || null };
+  $('#p-title').textContent = road ? `Edit ${road.c} · ${road.n}` : 'Add highway';
+  $('#q').style.display = road ? 'none' : '';
+  $('#panel').classList.add('open');
+  $('#only-cancel').style.display = '';
+  if (road) {
+    $('#f-code').value = road.c; $('#f-name').value = road.n; $('#f-color').value = road.k;
+    $('#f-s').value = road.s; $('#f-e').value = road.e;
+    showDraft(road.sc, road.ec, road.v);
+  } else { $('#q').focus(); }
+}
+
+function closePanel() {
+  draftLayer.clearLayers(); draft = null;
+  $('#panel').classList.remove('open'); $('#fields').classList.remove('show');
+  $('#results').innerHTML = ''; $('#q').value = ''; setMsg('');
+}
+
+/* --- autocomplete: Kolkata highways whose name contains the typed text --- */
+let searchTimer = 0, searchSeq = 0;
+$('#q').addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  const text = $('#q').value.trim().replace(/"/g, '');
+  const list = $('#results');
+  if (text.length < 2) { list.innerHTML = ''; setMsg(''); return; }
+  searchTimer = setTimeout(async () => {
+    const seq = ++searchSeq;
+    setMsg('Searching…');
+    try {
+      const hits = (await nominatim('q=' + encodeURIComponent(text))).filter((r) => isRoad(r) && r.name);
+      if (seq !== searchSeq) return;
+      const names = new Map();
+      hits.forEach((r) => { if (!names.has(r.name)) names.set(r.name, r.type); });
+      list.innerHTML = '';
+      [...names].sort((a, b) => a[0].localeCompare(b[0])).slice(0, 30).forEach(([name, type]) => {
+        const li = document.createElement('li');
+        li.tabIndex = 0;
+        li.innerHTML = `${esc(name)}<small>${esc(type)}</small>`;
+        li.onclick = () => pickHighway(name);
+        li.onkeydown = (e) => { if (e.key === 'Enter') pickHighway(name); };
+        list.appendChild(li);
+      });
+      setMsg(names.size ? '' : 'No highway found. Try a shorter name.');
+    } catch (_) { if (seq === searchSeq) setMsg('Search failed – the map data service is busy. Wait a few seconds and try again.', true); }
+  }, 700);
+});
+
+/** The two vertices farthest apart (double sweep) are the ends of the road. */
+function extremes(pts) {
+  const d = (a, b) => (a[0] - b[0]) ** 2 + ((a[1] - b[1]) * 0.92) ** 2;
+  const far = (p) => pts.reduce((m, q) => (d(p, q) > d(p, m) ? q : m), p);
+  const mean = [pts.reduce((s, p) => s + p[0], 0) / pts.length, pts.reduce((s, p) => s + p[1], 0) / pts.length];
+  const b = far(far(mean));
+  const a = far(b);
+  return a[0] >= b[0] ? [a, b] : [b, a];   // start = northern end
+}
+
+/** A few vertices along the road keep the routed path on the same road. */
+function viaPoints(pts, a, b) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], len2 = dx * dx + dy * dy || 1;
+  const t = (p) => ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2;
+  return [0.25, 0.5, 0.75].map((q) => pts.reduce((m, p) => (Math.abs(t(p) - q) < Math.abs(t(m) - q) ? p : m), pts[0]));
+}
+
+async function placeName(p, fallback) {
+  try {
+    const r = await fetch(`${CONFIG.nominatim}/reverse?format=jsonv2&zoom=16&lat=${p[0]}&lon=${p[1]}`, { signal: AbortSignal.timeout(8000) });
+    const j = await r.json(), a = j.address || {};
+    return a.road || a.neighbourhood || a.suburb || a.city_district || fallback;
+  } catch (_) { return fallback; }
+}
+
+async function pickHighway(name) {
+  $('#results').innerHTML = ''; $('#q').value = name;
+  setMsg('Locating the road and its start and end points…');
+  try {
+    const hits = (await nominatim('polygon_geojson=1&q=' + encodeURIComponent(name))).filter((r) => isRoad(r) && r.name === name && r.geojson);
+    const lines = hits.flatMap((r) => r.geojson.type === 'LineString' ? [r.geojson.coordinates]
+      : r.geojson.type === 'MultiLineString' ? r.geojson.coordinates : []).map((l) => l.map(([lng, lat]) => [lat, lng]));
+    if (!lines.length) throw new Error('No geometry');
+    const pts = lines.flat();
+    const [a, b] = extremes(pts);
+    $('#f-code').value = nextCode(); $('#f-name').value = name; $('#f-color').value = nextColor();
+    showDraft(a, b, viaPoints(pts, a, b), lines);
+    setMsg('Naming start and end…');
+    await sleep(1100);
+    $('#f-s').value = await placeName(a, 'Start');
+    await sleep(1100);
+    $('#f-e').value = await placeName(b, 'End');
+    setMsg('');
+  } catch (_) { setMsg('Could not load that road. Try another result.', true); }
+}
+
+$('#f-color').addEventListener('input', () => draft?.lines?.forEach((l) => l.setStyle({ color: $('#f-color').value })));
+$('#f-swap').onclick = () => {
+  if (!draft?.mS) return;
+  const s = draft.mS.getLatLng(), e = draft.mE.getLatLng();
+  draft.mS.setLatLng(e); draft.mE.setLatLng(s); draft.via = [...draft.via].reverse();
+  [$('#f-s').value, $('#f-e').value] = [$('#f-e').value, $('#f-s').value];
+};
+$('#f-cancel').onclick = $('#f-cancel2').onclick = closePanel;
+$('#btn-add').onclick = () => openPanel(null);
+
+$('#f-save').onclick = async () => {
+  if (!draft?.mS) return;
+  const c = $('#f-code').value.trim(), n = $('#f-name').value.trim();
+  if (!c || !n) return setMsg('Enter a road code and a name.', true);
+  if (ROADS.some((r) => r.c === c && r.id !== draft.id)) return setMsg(`The code ${c} is already used.`, true);
+  const data = { c, n, k: $('#f-color').value, kn: 'Custom', s: $('#f-s').value.trim() || 'Start', e: $('#f-e').value.trim() || 'End',
+    sc: toObj([draft.mS.getLatLng().lat, draft.mS.getLatLng().lng]),
+    ec: toObj([draft.mE.getLatLng().lat, draft.mE.getLatLng().lng]), v: draft.via.map(toObj) };
+  setMsg('Saving…');
+  try {
+    if (draft.id) await setDoc(doc(db, COLLECTION, draft.id), data); else await addDoc(collection(db, COLLECTION), data);
+    closePanel();
+  } catch (err) { setMsg('Could not save: ' + err.message, true); }
+};
+
+/* =====================================================================
+   10. PRINT
+   ===================================================================== */
+function applyPageSize() {
+  const [a, b] = CONFIG.paperMm[$('#paper').value];
+  const landscape = $('#orient').value === 'l';
+  const w = landscape ? b : a, h = landscape ? a : b, m = CONFIG.printMarginMm;
+  $('#page-rule').textContent = `@page { size: ${w}mm ${h}mm; margin: ${m}mm }`;
+  document.documentElement.style.setProperty('--page-w', (w - 2 * m) + 'mm');
+  document.documentElement.style.setProperty('--page-h', (h - 2 * m - 1) + 'mm');
+}
+function enterPrintMode() { document.body.classList.add('print-mode'); applyPageSize(); map.closePopup(); map.invalidateSize(); fitAll(); }
+function leavePrintMode() { document.body.classList.remove('print-mode'); map.invalidateSize(); }
+
+$('#btn-print').onclick = async () => {
+  const button = $('#btn-print');
+  enterPrintMode();
+  button.textContent = 'Preparing…';
+  await new Promise((resolve) => { basemap.once('load', resolve); setTimeout(resolve, 2500); });
+  await sleep(500);
+  button.textContent = 'Print';
+  window.print();
+};
+window.addEventListener('beforeprint', () => { if (!document.body.classList.contains('print-mode')) enterPrintMode(); });
+window.addEventListener('afterprint', leavePrintMode);
+$('#paper').onchange = $('#orient').onchange = applyPageSize;
+$('#btn-fit').onclick = fitAll;
+applyPageSize();
+
+/* =====================================================================
+   11. START-UP
+   ===================================================================== */
+const builtIn = ROADS.splice(0);
+builtIn.forEach(addRoad);
+renderLegend();
+fitAll();
+</script>
+</body>
+</html>
