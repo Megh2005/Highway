@@ -184,7 +184,7 @@ await new Promise((resolve, reject) => {
   script.onerror = () => { banner('Could not load Google Maps. Check your internet connection.'); reject(new Error('Google Maps failed to load')); };
   document.head.appendChild(script);
 });
-const [{ Map: GMap, Polyline, InfoWindow, LatLngBounds }, { Marker }, { Size, Point }, { Route }, { Geocoder }, { AutocompleteSuggestion, AutocompleteSessionToken }] =
+const [{ Map: GMap, Polyline, InfoWindow }, { Marker }, { Size, Point }, { Route }, { Geocoder }, { AutocompleteSuggestion, AutocompleteSessionToken }] =
   await Promise.all(['maps', 'marker', 'core', 'routes', 'geocoding', 'places'].map((lib) => google.maps.importLibrary(lib)));
 
 /* =====================================================================
@@ -277,11 +277,12 @@ function drawRoad(road, path, isStraightLine) {
   if (selected === road) setHighlight(road, true);
 }
 
-function fitAll() {
-  const bounds = new LatLngBounds();
-  ROADS.forEach((r) => r.path.forEach((p) => bounds.extend(toLL(p))));
-  map.fitBounds(bounds, CONFIG.fitPadding);
+function boundsOf(points) {                              // plain bounds object, no Google class needed
+  let south = 90, north = -90, west = 180, east = -180;
+  for (const [lat, lng] of points) { south = Math.min(south, lat); north = Math.max(north, lat); west = Math.min(west, lng); east = Math.max(east, lng); }
+  return { south, north, west, east };
 }
+function fitAll() { map.fitBounds(boundsOf(ROADS.flatMap((r) => r.path)), CONFIG.fitPadding); }
 
 function setStatus() {
   $('#status').textContent = dbNote || (pending ? `Routing ${pending} left…` :
@@ -394,9 +395,7 @@ function showDraft(sc, ec, via, path) {
   draft.mE = draftMarker('E', ec, 'End');
   $('#fields').classList.add('show');
   $('#only-cancel').style.display = 'none';
-  const bounds = new LatLngBounds();
-  [sc, ec, ...(path || [])].forEach((p) => bounds.extend(toLL(p)));
-  map.fitBounds(bounds, 70);
+  map.fitBounds(boundsOf([sc, ec, ...(path || [])]), 70);
 }
 
 function openPanel(road) {
