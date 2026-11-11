@@ -11,7 +11,8 @@
     -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   #map { position: fixed; inset: 0; background: #e5e9ec; }
   #banner { position: fixed; z-index: 2000; top: 70px; left: 50%; transform: translateX(-50%); max-width: min(560px, 92vw);
-    padding: 10px 14px; background: #fff3cd; border: 1px solid #b45309; border-radius: 3px; font-size: 13px; }
+    padding: 10px 14px; background: #fee2e2; border: 1px solid #b91c1c; color: #7f1d1d; border-radius: 3px; font-size: 13px; }
+  #boot { position: fixed; inset: 0; z-index: 1; display: grid; place-items: center; color: var(--muted); font-size: 15px; background: #eef1f4; pointer-events: none; }
 
   .box { background: rgba(255,255,255,.95); border: 1px solid #333; margin: 10px; }
   .legend { padding: 5px 8px 4px; font-size: 10px; line-height: 1.5; color: #111; max-height: 55vh; overflow: auto; }
@@ -61,10 +62,20 @@
   body.print-mode .toolbar, body.print-mode .panel, body.print-mode #banner, body.print-mode .gm-bundled-control { display: none !important; }
 </style>
 <style id="page-rule"></style>
+<script>
+  function __showErr(m) {
+    var b = document.getElementById('banner');
+    if (!b) { b = document.createElement('div'); b.id = 'banner'; document.body.appendChild(b); }
+    b.textContent = m;
+  }
+  window.addEventListener('error', function (e) { if (!/ResizeObserver/.test(e.message || '')) __showErr('Error: ' + (e.message || 'a script failed to load')); });
+  window.addEventListener('unhandledrejection', function (e) { __showErr('Error: ' + ((e.reason && e.reason.message) || e.reason)); });
+</script>
 </head>
 
 <body>
 <div id="map" aria-label="Map of Kolkata roads"></div>
+<div id="boot">Loading map…</div>
 
 <div class="box panel" id="panel">
   <h4 id="p-title">Add highway</h4>
@@ -83,7 +94,7 @@
   <div class="row" id="only-cancel"><button id="f-cancel2">Close</button></div>
 </div>
 
-<script type="module">
+<script type="module" onerror="__showErr('A script failed to load (Firebase or network). Open the browser console for details.')">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
 import { getFirestore, collection, onSnapshot, addDoc, setDoc, deleteDoc, doc }
   from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
@@ -184,8 +195,16 @@ await new Promise((resolve, reject) => {
   script.onerror = () => { banner('Could not load Google Maps. Check your internet connection.'); reject(new Error('Google Maps failed to load')); };
   document.head.appendChild(script);
 });
-const [{ Map: GMap, Polyline, InfoWindow }, { Marker }, { Size, Point }, { Route }, { Geocoder }, { AutocompleteSuggestion, AutocompleteSessionToken }] =
-  await Promise.all(['maps', 'marker', 'core', 'routes', 'geocoding', 'places'].map((lib) => google.maps.importLibrary(lib)));
+const libNames = ['maps', 'marker', 'core', 'routes', 'geocoding', 'places'];
+const loaded = await Promise.allSettled(libNames.map((lib) => google.maps.importLibrary(lib)));
+loaded.forEach((r, i) => { if (r.status === 'rejected') console.error('Google library failed: ' + libNames[i], r.reason); });
+const L = (i) => (loaded[i].status === 'fulfilled' ? loaded[i].value : {}), G = google.maps;
+const GMap = L(0).Map || G.Map, Polyline = L(0).Polyline || G.Polyline, InfoWindow = L(0).InfoWindow || G.InfoWindow;
+const Marker = L(1).Marker || G.Marker, Size = L(2).Size || G.Size, Point = L(2).Point || G.Point;
+const Route = L(3).Route || G.routes?.Route, Geocoder = L(4).Geocoder || G.Geocoder;
+const AutocompleteSuggestion = L(5).AutocompleteSuggestion || G.places?.AutocompleteSuggestion;
+const AutocompleteSessionToken = L(5).AutocompleteSessionToken || G.places?.AutocompleteSessionToken;
+if (!GMap || !Polyline || !Marker || !Size) { banner('Google Maps loaded but its map libraries are unavailable. Check the key and the API settings in Google Cloud.'); throw new Error('Google Maps libraries missing'); }
 
 /* =====================================================================
    4. MAP + CONTROLS
@@ -197,6 +216,9 @@ const map = new GMap($('#map'), {
   styles: [{ stylers: [{ saturation: -65 }, { lightness: 8 }] }, { featureType: 'poi', stylers: [{ visibility: 'off' }] }]
 });
 const iw = new InfoWindow({ maxWidth: 340 });
+let tilesOk = false;
+google.maps.event.addListenerOnce(map, 'tilesloaded', () => { tilesOk = true; $('#boot')?.remove(); });
+setTimeout(() => { if (!tilesOk) banner('The Google map did not load. In Google Cloud check that Maps JavaScript API is enabled, billing is on, and the key allows this website.'); }, 10000);
 
 function addControl(position, el) { map.controls[google.maps.ControlPosition[position]].push(el); return el; }
 const el = (tag, cls, html) => { const e = document.createElement(tag); e.className = cls; e.innerHTML = html || ''; return e; };
@@ -372,7 +394,8 @@ onSnapshot(collection(db, COLLECTION), (snap) => {
 /* =====================================================================
    9. ADD / EDIT HIGHWAY  (Google Places search → start & end marked automatically)
    ===================================================================== */
-let draftObjs = [], token = new AutocompleteSessionToken();
+const newToken = () => (AutocompleteSessionToken ? new AutocompleteSessionToken() : undefined);
+let draftObjs = [], token = newToken();
 const nextCode = () => 'R' + (Math.max(0, ...ROADS.map((r) => parseInt(String(r.c).replace(/\D/g, '')) || 0)) + 1);
 const nextColor = () => CONFIG.palette.find((c) => !ROADS.some((r) => r.k.toLowerCase() === c.toLowerCase())) || '#000000';
 const markerPos = (m) => [m.getPosition().lat(), m.getPosition().lng()];
@@ -465,7 +488,7 @@ async function pickHighway(prediction) {
   try {
     const place = prediction.toPlace();
     await place.fetchFields({ fields: ['location', 'viewport'] });
-    token = new AutocompleteSessionToken();
+    token = newToken();
     const vp = place.viewport;
     if (!vp) throw new Error('No extent');
     const loc = [place.location.lat(), place.location.lng()];
