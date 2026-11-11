@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kolkata Roads</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
   :root { --ink: #14202b; --muted: #5b6b79; --page-w: 281mm; --page-h: 197mm; }
   * { box-sizing: border-box; }
@@ -12,9 +13,17 @@
   #map { position: fixed; inset: 0; background: #e5e9ec; }
   #banner { position: fixed; z-index: 2000; top: 70px; left: 50%; transform: translateX(-50%); max-width: min(560px, 92vw);
     padding: 10px 14px; background: #fee2e2; border: 1px solid #b91c1c; color: #7f1d1d; border-radius: 3px; font-size: 13px; }
-  #boot { position: fixed; inset: 0; z-index: 1; display: grid; place-items: center; color: var(--muted); font-size: 15px; background: #eef1f4; pointer-events: none; }
+  .leaflet-tile-pane { filter: saturate(.4) brightness(1.05) contrast(.95); }
 
-  .box { background: rgba(255,255,255,.95); border: 1px solid #333; margin: 10px; }
+  .road-label { overflow: visible; }
+  .road-label b { display: block; width: max-content; white-space: nowrap; cursor: pointer;
+    font: 700 9px/9px "Segoe UI", Arial, sans-serif; letter-spacing: .2px;
+    text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff, 0 0 2px #fff; }
+  .end-point span { display: block; width: 14px; height: 14px; border: 2px solid; border-radius: 50%; background: #fff;
+    font: 700 8px/10px "Segoe UI", Arial, sans-serif; text-align: center; cursor: pointer; }
+  .end-point.draft span { width: 22px; height: 22px; font-size: 11px; line-height: 18px; cursor: grab; border-width: 3px; }
+
+  .box { background: rgba(255,255,255,.95); border: 1px solid #333; }
   .legend { padding: 5px 8px 4px; font-size: 10px; line-height: 1.5; color: #111; max-height: 55vh; overflow: auto; }
   .legend h4 { margin: 0 0 2px; padding-bottom: 2px; border-bottom: 1px solid #999; font-size: 10.5px; }
   .legend div { white-space: nowrap; }
@@ -28,16 +37,20 @@
   .toolbar span { font-size: 11px; color: var(--muted); }
   :focus-visible { outline: 2px solid #2563eb; }
 
-  .info { min-width: 260px; font: 12.5px/1.4 "Segoe UI", system-ui, sans-serif; color: var(--ink); }
+  .leaflet-popup-content-wrapper { border-radius: 4px; padding-top: 0; }
+  .leaflet-popup-content { margin: 0 12px 10px; font-family: inherit; }
+  .info { min-width: 260px; }
+  .info h3 { margin: -1px -1px 8px; padding: 7px 10px; color: #fff; font-size: 15px; }
   .info table { border-collapse: collapse; width: 100%; }
-  .info td { padding: 3px 0; vertical-align: top; }
+  .info td { padding: 3px 0; vertical-align: top; font-size: 12.5px; }
   .info td:first-child { color: var(--muted); padding-right: 10px; white-space: nowrap; }
   .info .note { color: #b45309; }
   .info a { color: #1d4ed8; }
   .info .actions { margin-top: 8px; display: flex; gap: 6px; }
   .swatch { display: inline-block; width: 11px; height: 11px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
 
-  .panel { display: none; position: fixed; z-index: 1200; top: 52px; left: 10px; width: min(330px, calc(100vw - 20px)); margin: 0;
+  /* ---------- Add / edit highway panel ---------- */
+  .panel { display: none; position: fixed; z-index: 1200; top: 52px; left: 10px; width: min(330px, calc(100vw - 20px));
     max-height: calc(100vh - 70px); overflow: auto; padding: 10px; border-radius: 3px; box-shadow: 0 4px 16px rgba(0,0,0,.25); }
   .panel.open { display: block; }
   .panel h4 { margin: 0 0 8px; font-size: 14px; }
@@ -45,8 +58,7 @@
   .panel input[type=color] { height: 28px; padding: 1px; }
   .panel label { display: block; margin-top: 6px; color: var(--muted); font-size: 11px; }
   .panel .row { display: flex; gap: 6px; margin-top: 10px; justify-content: flex-end; }
-  .panel small { color: var(--muted); }
-  .panel > small { display: block; margin-top: 8px; }
+  .panel small { display: block; margin-top: 8px; color: var(--muted); }
   #p-msg { margin-top: 6px; font-size: 12px; color: var(--muted); }
   #p-msg.err { color: #b91c1c; }
   #fields { display: none; }
@@ -55,11 +67,11 @@
   #results:empty { display: none; }
   #results li { padding: 5px 8px; cursor: pointer; border-bottom: 1px solid #eee; }
   #results li:hover, #results li:focus { background: #eef3fb; outline: none; }
-  #results li small { margin-left: 6px; }
+  #results li small { display: inline; margin-left: 6px; }
 
   body.print-mode { height: auto; }
   body.print-mode #map { position: relative; inset: auto; width: var(--page-w); height: var(--page-h); border: 1px solid #000; }
-  body.print-mode .toolbar, body.print-mode .panel, body.print-mode #banner, body.print-mode .gm-bundled-control { display: none !important; }
+  body.print-mode .toolbar, body.print-mode .leaflet-control-zoom, body.print-mode .panel { display: none !important; }
 </style>
 <style id="page-rule"></style>
 <script>
@@ -75,7 +87,6 @@
 
 <body>
 <div id="map" aria-label="Map of Kolkata roads"></div>
-<div id="boot">Loading map…</div>
 
 <div class="box panel" id="panel">
   <h4 id="p-title">Add highway</h4>
@@ -94,24 +105,15 @@
   <div class="row" id="only-cancel"><button id="f-cancel2">Close</button></div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script type="module" onerror="__showErr('A script failed to load (Firebase or network). Open the browser console for details.')">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
 import { getFirestore, collection, onSnapshot, addDoc, setDoc, deleteDoc, doc }
   from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 
 /* =====================================================================
-   1. CONFIGURATION  (the Google Maps key is read from /api/config, see api/config.js)
+   1. CONFIGURATION + FIREBASE
    ===================================================================== */
-const CONFIG = {
-  highwayBounds: { west: 88.20, north: 22.80, east: 88.50, south: 22.40 },   // Kolkata search area
-  palette: ['#DB2777', '#0891B2', '#65A30D', '#7C3AED', '#EA580C', '#0F766E', '#BE123C', '#4338CA', '#A16207', '#475569'],
-  labelPositions: [0.5],
-  fitPadding: 50,
-  paperMm: { A4: [210, 297], A3: [297, 420], A2: [420, 594], Letter: [216, 279] },
-  printMarginMm: 6,
-  deviationRatio: 1.8
-};
-
 const firebaseConfig = {
   apiKey: "AIzaSyBUBi_4O2qIGqDKje1gH5OvaZA4AT0oS_M",
   authDomain: "zero-ops-citadel.firebaseapp.com",
@@ -121,8 +123,29 @@ const firebaseConfig = {
   appId: "1:705456952090:web:78b3965a48d23073fd92a3"
 };
 const db = getFirestore(initializeApp(firebaseConfig));
-const COLLECTION = 'highways';
+const COLLECTION = 'highways';   // custom roads are stored here
 
+const CONFIG = {
+  tileUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  attribution: 'Basemap © OpenStreetMap contributors',
+  routers: [
+    'https://router.project-osrm.org/route/v1/driving/',
+    'https://routing.openstreetmap.de/routed-car/route/v1/driving/'
+  ],
+  nominatim: 'https://nominatim.openstreetmap.org',   // search + reverse geocoding (built for browser use, CORS enabled)
+  viewbox: '88.20,22.80,88.50,22.40',            // Kolkata search area (west,north,east,south)
+  highwayTypes: 'motorway|trunk|primary|secondary|tertiary',
+  palette: ['#DB2777', '#0891B2', '#65A30D', '#7C3AED', '#EA580C', '#0F766E', '#BE123C', '#4338CA', '#A16207', '#475569'],
+  labelPositions: [0.5],
+  fitPadding: [50, 50],
+  paperMm: { A4: [210, 297], A3: [297, 420], A2: [420, 594], Letter: [216, 279] },
+  printMarginMm: 6,
+  deviationRatio: 1.8
+};
+
+/* =====================================================================
+   2. ROAD DATA  –  built-in roads (custom ones are added from Firestore)
+   ===================================================================== */
 const ROADS = [
   { c: 'R1',  n: 'E. M. Bypass',             kn: 'Navy blue',   k: '#1A365D', s: 'Ultadanga crossing',            sc: [22.591411, 88.393388], e: 'Kamalgazi crossing',           ec: [22.449438, 88.390871] },
   { c: 'R2',  n: 'A. J. C. Bose Road',       kn: 'Red',         k: '#C53030', s: 'Hastings (Strand Rd. Junction)', sc: [22.571021, 88.343134], e: 'Sealdah Railway Station',      ec: [22.567775, 88.371010] },
@@ -139,128 +162,84 @@ const ROADS = [
 ];
 
 /* =====================================================================
-   2. HELPERS
+   3. HELPERS
    ===================================================================== */
-let toolbar = null;   // Google adds map controls to the page late, so the toolbar is also searched while detached
-const $ = (selector) => document.querySelector(selector) || toolbar?.querySelector(selector);
+const $ = (selector) => document.querySelector(selector);
 const fmtCoord = (p) => p[0].toFixed(5) + ', ' + p[1].toFixed(5);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const toObj = (p) => ({ lat: p[0], lng: p[1] });
 const toArr = (o) => [o.lat, o.lng];
-const toLL = toObj;
 
-function banner(text) {
-  let b = $('#banner');
-  if (!b) { b = document.createElement('div'); b.id = 'banner'; document.body.appendChild(b); }
-  b.textContent = text;
+function darken(hex, factor = 0.6) {
+  return '#' + [1, 3, 5].map((i) => Math.round(parseInt(hex.substr(i, 2), 16) * factor).toString(16).padStart(2, '0')).join('');
 }
-const darken = (hex, f = 0.6) => '#' + [1, 3, 5].map((i) => Math.round(parseInt(hex.substr(i, 2), 16) * f).toString(16).padStart(2, '0')).join('');
 
-function dist(a, b) {                                   // metres, haversine
-  const r = Math.PI / 180, dLat = (b[0] - a[0]) * r, dLng = (b[1] - a[1]) * r;
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLng / 2) ** 2;
-  return 12742000 * Math.asin(Math.sqrt(h));
-}
 function pointAlong(path, f) {
-  const cum = [0];
-  for (let i = 1; i < path.length; i++) cum.push(cum[i - 1] + dist(path[i - 1], path[i]));
-  const target = cum[cum.length - 1] * f;
+  const cumulative = [0];
+  for (let i = 1; i < path.length; i++) cumulative.push(cumulative[i - 1] + map.distance(path[i - 1], path[i]));
+  const target = cumulative[cumulative.length - 1] * f;
   let i = 1;
-  while (i < cum.length - 1 && cum[i] < target) i++;
-  const u = (target - cum[i - 1]) / (cum[i] - cum[i - 1] || 1);
+  while (i < cumulative.length - 1 && cumulative[i] < target) i++;
+  const u = (target - cumulative[i - 1]) / (cumulative[i] - cumulative[i - 1] || 1);
   return [path[i - 1][0] + (path[i][0] - path[i - 1][0]) * u, path[i - 1][1] + (path[i][1] - path[i - 1][1]) * u];
 }
-function segDist(p, a, b) {                             // distance from point p to segment a-b (degrees, local plane)
-  const k = Math.cos(p[0] * Math.PI / 180), f = (q) => [q[0], q[1] * k];
-  const [P, A, B] = [f(p), f(a), f(b)], dx = B[0] - A[0], dy = B[1] - A[1];
-  const t = Math.max(0, Math.min(1, ((P[0] - A[0]) * dx + (P[1] - A[1]) * dy) / (dx * dx + dy * dy || 1)));
-  return Math.hypot(P[0] - A[0] - t * dx, P[1] - A[1] - t * dy);
-}
-
-/* =====================================================================
-   3. LOAD GOOGLE MAPS
-   ===================================================================== */
-let googleMapsKey = '';
-try { googleMapsKey = (await (await fetch('/api/config', { cache: 'no-store' })).json()).googleMapsKey || ''; } catch (_) {}
-if (!googleMapsKey) {
-  banner('Google Maps key not found. Add GOOGLE_MAPS_API_KEY under Environment Variables in your Vercel project, then redeploy.');
-  throw new Error('Missing Google Maps API key');
-}
-window.gm_authFailure = () => banner('Google Maps rejected the API key. Check that billing is on, the key allows this website, and the Maps JavaScript, Places (New), Routes and Geocoding APIs are enabled.');
-await new Promise((resolve, reject) => {
-  window.__gmReady = resolve;
-  const script = document.createElement('script');
-  script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(googleMapsKey)}&v=weekly&loading=async&region=IN&callback=__gmReady`;
-  script.onerror = () => { banner('Could not load Google Maps. Check your internet connection.'); reject(new Error('Google Maps failed to load')); };
-  document.head.appendChild(script);
-});
-const libNames = ['maps', 'marker', 'core', 'routes', 'geocoding', 'places'];
-const loaded = await Promise.allSettled(libNames.map((lib) => google.maps.importLibrary(lib)));
-loaded.forEach((r, i) => { if (r.status === 'rejected') console.error('Google library failed: ' + libNames[i], r.reason); });
-const L = (i) => (loaded[i].status === 'fulfilled' ? loaded[i].value : {}), G = google.maps;
-const GMap = L(0).Map || G.Map, Polyline = L(0).Polyline || G.Polyline, InfoWindow = L(0).InfoWindow || G.InfoWindow;
-const Marker = L(1).Marker || G.Marker, Size = L(2).Size || G.Size, Point = L(2).Point || G.Point;
-const Route = L(3).Route || G.routes?.Route, Geocoder = L(4).Geocoder || G.Geocoder;
-const AutocompleteSuggestion = L(5).AutocompleteSuggestion || G.places?.AutocompleteSuggestion;
-const AutocompleteSessionToken = L(5).AutocompleteSessionToken || G.places?.AutocompleteSessionToken;
-if (!GMap || !Polyline || !Marker || !Size) { banner('Google Maps loaded but its map libraries are unavailable. Check the key and the API settings in Google Cloud.'); throw new Error('Google Maps libraries missing'); }
 
 /* =====================================================================
    4. MAP + CONTROLS
    ===================================================================== */
-const map = new GMap($('#map'), {
-  center: { lat: 22.55, lng: 88.37 }, zoom: 12, minZoom: 9, maxZoom: 19,
-  mapTypeControl: false, streetViewControl: false, fullscreenControl: false, scaleControl: true, clickableIcons: false,
-  gestureHandling: 'greedy',
-  styles: [{ stylers: [{ saturation: -65 }, { lightness: 8 }] }, { featureType: 'poi', stylers: [{ visibility: 'off' }] }]
-});
-const iw = new InfoWindow({ maxWidth: 340 });
-let tilesOk = false;
-google.maps.event.addListenerOnce(map, 'tilesloaded', () => { tilesOk = true; $('#boot')?.remove(); });
-setTimeout(() => { if (!tilesOk) banner('The Google map did not load. In Google Cloud check that Maps JavaScript API is enabled, billing is on, and the key allows this website.'); }, 10000);
+const map = L.map('map', { renderer: L.svg({ padding: 0.5 }), zoomSnap: 0.25, zoomDelta: 0.5, minZoom: 9, maxZoom: 19 });
+const basemap = L.tileLayer(CONFIG.tileUrl, { maxZoom: 19, crossOrigin: true, attribution: CONFIG.attribution }).addTo(map);
+L.control.scale({ imperial: false, position: 'bottomright' }).addTo(map);
 
-function addControl(position, el) { map.controls[google.maps.ControlPosition[position]].push(el); return el; }
-const el = (tag, cls, html) => { const e = document.createElement(tag); e.className = cls; e.innerHTML = html || ''; return e; };
+function addControl(position, build) {
+  const control = L.control({ position });
+  control.onAdd = () => { const el = build(); L.DomEvent.disableClickPropagation(el); return el; };
+  return control.addTo(map);
+}
 
-const legendEl = addControl('BOTTOM_LEFT', el('div', 'box legend'));
+let legendEl;
+addControl('bottomleft', () => (legendEl = L.DomUtil.create('div', 'box legend')));
 function renderLegend() {
   legendEl.innerHTML = '<h4>Legend</h4>' + ROADS.map((r) => `<div><i style="background:${r.k}"></i><b>${esc(r.c)}</b> ${esc(r.n)}</div>`).join('');
 }
-addControl('TOP_RIGHT', el('div', 'box north', '<svg width="18" height="26" viewBox="0 0 18 26"><path d="M9 1 16 24 9 18 2 24Z" fill="#111"/></svg>N'));
-toolbar = addControl('TOP_LEFT', el('div', 'box toolbar',
-  '<button id="btn-add" title="Add a new highway">+ Add highway</button>' +
-  '<button id="btn-print" class="primary" title="Print or save as PDF">Print</button>' +
-  '<select id="paper" aria-label="Paper size">' + Object.keys(CONFIG.paperMm).map((p) => `<option>${p}</option>`).join('') + '</select>' +
-  '<select id="orient" aria-label="Orientation"><option value="l">Landscape</option><option value="p">Portrait</option></select>' +
-  '<button id="btn-fit" title="Fit all roads">Fit</button><span id="status"></span>'));
 
-/* ---------- crisp SVG icons (sharp at any print size) ---------- */
-const svgIcon = (svg, w, h) => ({ url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg), scaledSize: new Size(w, h), anchor: new Point(w / 2, h / 2) });
-const endIcon = (letter, color, size) => {
-  const r = size / 2;
-  return svgIcon(`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><circle cx="${r}" cy="${r}" r="${r - 1.5}" fill="#fff" stroke="${color}" stroke-width="${size > 16 ? 3 : 2}"/><text x="${r}" y="${r}" text-anchor="middle" dominant-baseline="central" font-family="Arial" font-weight="700" font-size="${size * .56}" fill="${color}">${letter}</text></svg>`, size, size);
-};
-const labelIcon = (code, color, angle) => svgIcon(`<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><text transform="rotate(${angle} 32 32)" x="32" y="25" text-anchor="middle" dominant-baseline="central" font-family="Arial" font-weight="700" font-size="10" fill="${color}" stroke="#fff" stroke-width="3" stroke-linejoin="round" paint-order="stroke">${esc(code)}</text></svg>`, 64, 64);
+addControl('topright', () => {
+  const el = L.DomUtil.create('div', 'box north');
+  el.innerHTML = '<svg width="18" height="26" viewBox="0 0 18 26"><path d="M9 1 16 24 9 18 2 24Z" fill="#111"/></svg>N';
+  return el;
+});
+
+addControl('topleft', () => {
+  const el = L.DomUtil.create('div', 'box toolbar');
+  el.innerHTML =
+    '<button id="btn-add" title="Add a new highway">+ Add highway</button>' +
+    '<button id="btn-print" class="primary" title="Print or save as PDF">Print</button>' +
+    '<select id="paper" aria-label="Paper size">' + Object.keys(CONFIG.paperMm).map((p) => `<option>${p}</option>`).join('') + '</select>' +
+    '<select id="orient" aria-label="Orientation"><option value="l">Landscape</option><option value="p">Portrait</option></select>' +
+    '<button id="btn-fit" title="Fit all roads">Fit</button><span id="status"></span>';
+  return el;
+});
 
 /* =====================================================================
-   5. ROUTING  (Google Routes follows the real street network)
+   5. ROUTING
    ===================================================================== */
 async function fetchRoute(road) {
   const waypoints = [road.sc, ...(road.v || []), road.ec];
-  const cacheKey = 'kolkata-gm:' + road.c + JSON.stringify(waypoints);
+  const cacheKey = 'kolkata-rr:' + road.c + JSON.stringify(waypoints);
   try { const cached = JSON.parse(localStorage.getItem(cacheKey)); if (cached) return cached; } catch (_) {}
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const { routes } = await Route.computeRoutes({
-        origin: toLL(road.sc), destination: toLL(road.ec), intermediates: (road.v || []).map(toLL),
-        travelMode: 'DRIVING', fields: ['path', 'distanceMeters', 'durationMillis']
-      });
-      const r = routes[0];
-      const result = { path: r.path.map((p) => [p.lat, p.lng]), distance: r.distanceMeters, duration: r.durationMillis / 1000 };
-      try { localStorage.setItem(cacheKey, JSON.stringify(result)); } catch (_) {}
-      return result;
-    } catch (_) { await sleep(800); }
+
+  const query = waypoints.map((p) => p[1] + ',' + p[0]).join(';') + '?overview=full&geometries=geojson';
+  for (const server of CONFIG.routers) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await fetch(server + query, { signal: AbortSignal.timeout(15000) });
+        const route = (await response.json()).routes[0];
+        const result = { path: route.geometry.coordinates.map(([lng, lat]) => [lat, lng]), distance: route.distance, duration: route.duration };
+        try { localStorage.setItem(cacheKey, JSON.stringify(result)); } catch (_) {}
+        return result;
+      } catch (_) { await sleep(800); }
+    }
   }
   throw new Error('Routing failed for ' + road.c);
 }
@@ -272,46 +251,51 @@ let selected = null, draft = null, pending = 0, dbNote = '', firstLoad = true, q
 
 function setHighlight(road, on) {
   if (!road.line) return;
-  road.line.setOptions({ strokeWeight: on ? 5 : 3, zIndex: on ? 12 : 2 });
-  road.outline.setOptions({ strokeWeight: on ? 8 : 5.5, zIndex: on ? 11 : 1 });
+  road.line.setStyle({ weight: on ? 5 : 3 });
+  road.outline.setStyle({ weight: on ? 8 : 5.5 });
 }
 
 function drawRoad(road, path, isStraightLine) {
-  (road.group || []).forEach((o) => o.setMap(null));
-  road.group = [];
+  const group = road.group;
+  group.clearLayers();
   road.path = path;
   road.isStraightLine = isStraightLine;
-  const pts = path.map(toLL), add = (o) => { o.addListener('click', (e) => selectRoad(road, e.latLng)); road.group.push(o); return o; };
-  const stroke = { path: pts, map, strokeOpacity: 1 };
 
-  road.outline = add(new Polyline({ ...stroke, strokeColor: darken(road.k), strokeWeight: 5.5, zIndex: 1 }));
-  road.line    = add(new Polyline({ ...stroke, strokeColor: road.k, strokeWeight: 3, zIndex: 2 }));
+  const onClick = (layer) => layer.on('click', (e) => { L.DomEvent.stop(e); selectRoad(road, e.latlng); });
+  const stroke = { lineCap: 'round', lineJoin: 'round', opacity: 1 };
 
-  [['Start', 'S', path[0], road.s], ['End', 'E', path[path.length - 1], road.e]].forEach(([label, letter, point, name]) =>
-    add(new Marker({ position: toLL(point), map, icon: endIcon(letter, road.k, 14), zIndex: 500, title: `${road.c} ${label}: ${name}` })));
+  road.outline = onClick(L.polyline(path, { ...stroke, color: darken(road.k), weight: 5.5 }).addTo(group));
+  road.line    = onClick(L.polyline(path, { ...stroke, color: road.k, weight: 3 }).addTo(group));
+  road.line.bindTooltip(`${road.c} · ${road.n}`, { sticky: true });
+
+  [['Start', 'S', path[0], road.s], ['End', 'E', path[path.length - 1], road.e]].forEach(([label, letter, point, name]) => {
+    const icon = L.divIcon({ className: 'end-point', iconSize: [14, 14], iconAnchor: [7, 7],
+      html: `<span style="border-color:${road.k};color:${road.k}">${letter}</span>` });
+    onClick(L.marker(point, { icon, zIndexOffset: 500 }).bindTooltip(`${road.c} ${label}: ${name}`).addTo(group));
+  });
 
   CONFIG.labelPositions.forEach((f) => {
-    const a = pointAlong(path, Math.max(f - 0.015, 0)), b = pointAlong(path, Math.min(f + 0.015, 1));
-    let angle = Math.atan2(-(b[0] - a[0]), (b[1] - a[1]) * Math.cos(a[0] * Math.PI / 180)) * 180 / Math.PI;
-    if (angle > 90 || angle < -90) angle += 180;        // keep text upright
-    add(new Marker({ position: toLL(pointAlong(path, f)), map, icon: labelIcon(road.c, road.k, angle), zIndex: 400, title: `${road.c} · ${road.n}` }));
+    const a = map.latLngToLayerPoint(pointAlong(path, Math.max(f - 0.015, 0)));
+    const b = map.latLngToLayerPoint(pointAlong(path, Math.min(f + 0.015, 1)));
+    let angle = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+    if (angle > 90 || angle < -90) angle += 180;
+    const icon = L.divIcon({ className: 'road-label', iconSize: [0, 0],
+      html: `<b style="color:${road.k};transform:translate(-50%,-50%) rotate(${angle}deg) translateY(-7px)">${esc(road.c)}</b>` });
+    onClick(L.marker(pointAlong(path, f), { icon }).addTo(group));
   });
+
   if (selected === road) setHighlight(road, true);
 }
 
-function boundsOf(points) {                              // plain bounds object, no Google class needed
-  let south = 90, north = -90, west = 180, east = -180;
-  for (const [lat, lng] of points) { south = Math.min(south, lat); north = Math.max(north, lat); west = Math.min(west, lng); east = Math.max(east, lng); }
-  return { south, north, west, east };
-}
-function fitAll() { map.fitBounds(boundsOf(ROADS.flatMap((r) => r.path)), CONFIG.fitPadding); }
+function fitAll() { map.fitBounds(L.latLngBounds(ROADS.flatMap((r) => r.path)), { padding: CONFIG.fitPadding }); }
 
 function setStatus() {
   $('#status').textContent = dbNote || (pending ? `Routing ${pending} left…` :
-    ROADS.some((r) => r.isStraightLine) ? 'Routing failed for some roads – is the Routes API enabled?' : '');
+    ROADS.some((r) => r.isStraightLine) ? 'Routing failed for some roads – check internet' : '');
 }
 
-function enqueue(road) {                                 // one at a time, so the quota is not hit
+/** Roads are routed one at a time so the free routing servers are not overloaded. */
+function enqueue(road) {
   pending++; setStatus();
   queue = queue.then(async () => {
     if (ROADS.includes(road)) {
@@ -319,16 +303,22 @@ function enqueue(road) {                                 // one at a time, so th
       catch (_) { drawRoad(road, [road.sc, road.ec], true); }
     }
     pending--; setStatus();
-    if (firstLoad && !selected && pending % 4 === 0) fitAll();
+    if (firstLoad && !selected && (pending % 4 === 0)) fitAll();
     if (!pending) firstLoad = false;
   });
 }
 
-function addRoad(road) { road.group = []; road.path = [road.sc, road.ec]; ROADS.push(road); enqueue(road); }
+function addRoad(road) {
+  road.group = L.featureGroup().addTo(map);
+  road.path = [road.sc, road.ec];
+  ROADS.push(road);
+  enqueue(road);
+}
+
 function removeRoad(road) {
   if (selected === road) selected = null;
-  iw.close();
-  (road.group || []).forEach((o) => o.setMap(null));
+  map.closePopup();
+  road.group.remove();
   ROADS.splice(ROADS.indexOf(road), 1);
 }
 
@@ -339,15 +329,15 @@ function selectRoad(road, at) {
   if (selected && selected !== road) setHighlight(selected, false);
   selected = road;
   setHighlight(road, true);
+  road.group.eachLayer((layer) => layer.bringToFront && layer.bringToFront());
 
   const row = (label, value) => `<tr><td>${label}</td><td>${value}</td></tr>`;
-  const deviates = road.distance && road.distance / dist(road.sc, road.ec) > CONFIG.deviationRatio;
-  const link = `https://www.google.com/maps/dir/?api=1&origin=${road.sc}&destination=${road.ec}`;
+  const straight = map.distance(road.sc, road.ec);
+  const deviates = road.distance && road.distance / straight > CONFIG.deviationRatio;
+  const maps = `https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&route=${road.sc};${road.ec}`;
 
-  const head = el('div', '', `${esc(road.c)} · ${esc(road.n)}`);
-  head.style.cssText = `color:${road.k};font:700 15px "Segoe UI",sans-serif`;
-  iw.setHeaderContent(head);
-  iw.setContent(`<div class="info"><table>` +
+  const popup = L.popup({ maxWidth: 340 }).setLatLng(at || pointAlong(road.path, 0.5)).setContent(
+    `<div class="info"><h3 style="background:${road.k}">${esc(road.c)} · ${esc(road.n)}</h3><table>` +
     row('Road code', `<b>${esc(road.c)}</b>`) +
     row('Colour', `<span class="swatch" style="background:${road.k}"></span>${esc(road.kn)} (${road.k})`) +
     row('Start', `${esc(road.s)}<br><small>${fmtCoord(road.sc)}</small>`) +
@@ -356,19 +346,18 @@ function selectRoad(road, at) {
     row('Drive time', road.duration ? '≈ ' + Math.round(road.duration / 60) + ' min (no traffic)' : '–') +
     row('Path', road.isStraightLine ? 'Straight line (routing unavailable)' : 'Routed along the street network') +
     (deviates ? row('Check', '<span class="note">Routed path is much longer than the straight distance – verify the coordinates or add via-points.</span>') : '') +
-    `</table><a href="${link}" target="_blank" rel="noopener">Open in Google Maps</a>` +
-    (road.custom ? '<div class="actions"><button id="edit-road">Edit</button><button id="del-road">Delete</button></div>' : '') + '</div>');
-  iw.setPosition(at || toLL(pointAlong(road.path, 0.5)));
-  google.maps.event.addListenerOnce(iw, 'domready', () => {
-    $('#edit-road')?.addEventListener('click', () => openPanel(road));
-    $('#del-road')?.addEventListener('click', async () => {
-      if (!confirm(`Delete ${road.c} · ${road.n}?`)) return;
-      try { await deleteDoc(doc(db, COLLECTION, road.id)); } catch (err) { alert('Could not delete: ' + err.message); }
-    });
+    `</table><a href="${maps}" target="_blank" rel="noopener">Open route on OpenStreetMap</a>` +
+    (road.custom ? '<div class="actions"><button id="edit-road">Edit</button><button id="del-road">Delete</button></div>' : '') +
+    '</div>').openOn(map);
+
+  const el = popup.getElement();
+  el.querySelector('#edit-road')?.addEventListener('click', () => openPanel(road));
+  el.querySelector('#del-road')?.addEventListener('click', async () => {
+    if (!confirm(`Delete ${road.c} · ${road.n}?`)) return;
+    try { await deleteDoc(doc(db, COLLECTION, road.id)); } catch (err) { alert('Could not delete: ' + err.message); }
   });
-  iw.open({ map });
 }
-map.addListener('click', () => { if (selected) { setHighlight(selected, false); selected = null; } iw.close(); });
+map.on('click', () => { if (selected) { setHighlight(selected, false); selected = null; } });
 
 /* =====================================================================
    8. FIRESTORE SYNC  (custom highways appear on every device in real time)
@@ -379,6 +368,7 @@ const fromDoc = (d) => {
   return { id: d.id, custom: true, c: x.c, n: x.n, kn: x.kn || 'Custom', k: x.k, s: x.s, e: x.e,
     sc: toArr(x.sc), ec: toArr(x.ec), v: (x.v || []).map(toArr) };
 };
+
 onSnapshot(collection(db, COLLECTION), (snap) => {
   dbNote = '';
   const ids = new Set(snap.docs.map((d) => d.id));
@@ -392,38 +382,44 @@ onSnapshot(collection(db, COLLECTION), (snap) => {
 }, (err) => { dbNote = err.code === 'permission-denied' ? 'Database: permission denied – check Firestore rules' : 'Database error: ' + err.message; setStatus(); });
 
 /* =====================================================================
-   9. ADD / EDIT HIGHWAY  (Google Places search → start & end marked automatically)
+   9. ADD / EDIT HIGHWAY  (search → dropdown → start & end marked automatically)
    ===================================================================== */
-const newToken = () => (AutocompleteSessionToken ? new AutocompleteSessionToken() : undefined);
-let draftObjs = [], token = newToken();
+const draftLayer = L.layerGroup().addTo(map);
+const roadType = new RegExp('^(' + CONFIG.highwayTypes + ')$');
+const isRoad = (r) => r.category === 'highway' && roadType.test(r.type);
+async function nominatim(params) {
+  const url = `${CONFIG.nominatim}/search?format=jsonv2&bounded=1&viewbox=${CONFIG.viewbox}&limit=40&${params}`;
+  const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  if (!response.ok) throw new Error('Search service returned ' + response.status);
+  return response.json();
+}
 const nextCode = () => 'R' + (Math.max(0, ...ROADS.map((r) => parseInt(String(r.c).replace(/\D/g, '')) || 0)) + 1);
 const nextColor = () => CONFIG.palette.find((c) => !ROADS.some((r) => r.k.toLowerCase() === c.toLowerCase())) || '#000000';
-const markerPos = (m) => [m.getPosition().lat(), m.getPosition().lng()];
+
 function setMsg(text, isError) { const m = $('#p-msg'); m.textContent = text || ''; m.className = isError ? 'err' : ''; }
-function clearDraft() { draftObjs.forEach((o) => o.setMap(null)); draftObjs = []; }
 
 function draftMarker(letter, pos, name) {
-  const m = new Marker({ position: toLL(pos), map, draggable: true, icon: endIcon(letter, '#000000', 26), zIndex: 1500, title: name + ' – drag to adjust' });
-  m.addListener('dragend', () => { if (draft) draft.via = []; });   // moved by hand: the old via-point no longer applies
-  draftObjs.push(m);
+  const icon = L.divIcon({ className: 'end-point draft', iconSize: [22, 22], iconAnchor: [11, 11],
+    html: `<span style="border-color:#000;color:#000">${letter}</span>` });
+  const m = L.marker(pos, { icon, draggable: true, zIndexOffset: 1500 }).bindTooltip(name + ' – drag to adjust').addTo(draftLayer);
+  m.on('dragend', () => { if (draft) draft.via = []; });   // moved by hand: the old via-points no longer apply
   return m;
 }
 
-function showDraft(sc, ec, via, path) {
-  clearDraft();
+function showDraft(sc, ec, via, lines) {
+  draftLayer.clearLayers();
   draft.via = via || [];
-  draft.line = path ? new Polyline({ path: path.map(toLL), map, strokeColor: $('#f-color').value, strokeWeight: 6, strokeOpacity: .55, clickable: false, zIndex: 900 }) : null;
-  if (draft.line) draftObjs.push(draft.line);
+  draft.lines = (lines || []).map((l) => L.polyline(l, { color: $('#f-color').value, weight: 4, dashArray: '6 6', opacity: .9, interactive: false }).addTo(draftLayer));
   draft.mS = draftMarker('S', sc, 'Start');
   draft.mE = draftMarker('E', ec, 'End');
   $('#fields').classList.add('show');
   $('#only-cancel').style.display = 'none';
-  map.fitBounds(boundsOf([sc, ec, ...(path || [])]), 70);
+  map.fitBounds(L.latLngBounds([sc, ec, ...(lines || []).flat()]), { padding: [60, 60], maxZoom: 16 });
 }
 
 function openPanel(road) {
   closePanel();
-  iw.close();
+  map.closePopup();
   draft = { id: road?.id || null };
   $('#p-title').textContent = road ? `Edit ${road.c} · ${road.n}` : 'Add highway';
   $('#q').style.display = road ? 'none' : '';
@@ -432,88 +428,96 @@ function openPanel(road) {
   if (road) {
     $('#f-code').value = road.c; $('#f-name').value = road.n; $('#f-color').value = road.k;
     $('#f-s').value = road.s; $('#f-e').value = road.e;
-    showDraft(road.sc, road.ec, road.v, road.path);
+    showDraft(road.sc, road.ec, road.v);
   } else { $('#q').focus(); }
 }
+
 function closePanel() {
-  clearDraft(); draft = null;
+  draftLayer.clearLayers(); draft = null;
   $('#panel').classList.remove('open'); $('#fields').classList.remove('show');
   $('#results').innerHTML = ''; $('#q').value = ''; setMsg('');
 }
 
-/* --- autocomplete: Google Places, roads only, inside Kolkata --- */
+/* --- autocomplete: Kolkata highways whose name contains the typed text --- */
 let searchTimer = 0, searchSeq = 0;
 $('#q').addEventListener('input', () => {
   clearTimeout(searchTimer);
-  const text = $('#q').value.trim(), list = $('#results');
+  const text = $('#q').value.trim().replace(/"/g, '');
+  const list = $('#results');
   if (text.length < 2) { list.innerHTML = ''; setMsg(''); return; }
   searchTimer = setTimeout(async () => {
     const seq = ++searchSeq;
     setMsg('Searching…');
     try {
-      const { suggestions } = await AutocompleteSuggestion.fetchAutocompleteSuggestions({
-        input: text, sessionToken: token, includedPrimaryTypes: ['route'], region: 'in', locationRestriction: CONFIG.highwayBounds
-      });
+      const hits = (await nominatim('q=' + encodeURIComponent(text))).filter((r) => isRoad(r) && r.name);
       if (seq !== searchSeq) return;
+      const names = new Map();
+      hits.forEach((r) => { if (!names.has(r.name)) names.set(r.name, r.type); });
       list.innerHTML = '';
-      suggestions.filter((s) => s.placePrediction).slice(0, 8).forEach((s) => {
-        const p = s.placePrediction, li = document.createElement('li');
+      [...names].sort((a, b) => a[0].localeCompare(b[0])).slice(0, 30).forEach(([name, type]) => {
+        const li = document.createElement('li');
         li.tabIndex = 0;
-        li.innerHTML = `${esc(p.mainText.text)}<small>${esc(p.secondaryText?.text || '')}</small>`;
-        li.onclick = () => pickHighway(p);
-        li.onkeydown = (e) => { if (e.key === 'Enter') pickHighway(p); };
+        li.innerHTML = `${esc(name)}<small>${esc(type)}</small>`;
+        li.onclick = () => pickHighway(name);
+        li.onkeydown = (e) => { if (e.key === 'Enter') pickHighway(name); };
         list.appendChild(li);
       });
-      setMsg(list.children.length ? '' : 'No highway found. Try a shorter name.');
-    } catch (err) { if (seq === searchSeq) setMsg('Search failed. Check that Places API (New) is enabled for your key.', true); console.error(err); }
-  }, 300);
+      setMsg(names.size ? '' : 'No highway found. Try a shorter name.');
+    } catch (_) { if (seq === searchSeq) setMsg('Search failed – the map data service is busy. Wait a few seconds and try again.', true); }
+  }, 700);
 });
+
+/** The two vertices farthest apart (double sweep) are the ends of the road. */
+function extremes(pts) {
+  const d = (a, b) => (a[0] - b[0]) ** 2 + ((a[1] - b[1]) * 0.92) ** 2;
+  const far = (p) => pts.reduce((m, q) => (d(p, q) > d(p, m) ? q : m), p);
+  const mean = [pts.reduce((s, p) => s + p[0], 0) / pts.length, pts.reduce((s, p) => s + p[1], 0) / pts.length];
+  const b = far(far(mean));
+  const a = far(b);
+  return a[0] >= b[0] ? [a, b] : [b, a];   // start = northern end
+}
+
+/** A few vertices along the road keep the routed path on the same road. */
+function viaPoints(pts, a, b) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], len2 = dx * dx + dy * dy || 1;
+  const t = (p) => ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2;
+  return [0.25, 0.5, 0.75].map((q) => pts.reduce((m, p) => (Math.abs(t(p) - q) < Math.abs(t(m) - q) ? p : m), pts[0]));
+}
 
 async function placeName(p, fallback) {
   try {
-    const { results } = await new Geocoder().geocode({ location: toLL(p) });
-    const parts = results[0].address_components;
-    for (const t of ['neighborhood', 'sublocality_level_2', 'sublocality_level_1', 'locality']) {
-      const part = parts.find((x) => x.types.includes(t));
-      if (part) return part.long_name;
-    }
-  } catch (_) {}
-  return fallback;
+    const r = await fetch(`${CONFIG.nominatim}/reverse?format=jsonv2&zoom=16&lat=${p[0]}&lon=${p[1]}`, { signal: AbortSignal.timeout(8000) });
+    const j = await r.json(), a = j.address || {};
+    return a.road || a.neighbourhood || a.suburb || a.city_district || fallback;
+  } catch (_) { return fallback; }
 }
 
-async function pickHighway(prediction) {
-  const name = prediction.mainText.text;
+async function pickHighway(name) {
   $('#results').innerHTML = ''; $('#q').value = name;
   setMsg('Locating the road and its start and end points…');
   try {
-    const place = prediction.toPlace();
-    await place.fetchFields({ fields: ['location', 'viewport'] });
-    token = newToken();
-    const vp = place.viewport;
-    if (!vp) throw new Error('No extent');
-    const loc = [place.location.lat(), place.location.lng()];
-    const sw = [vp.getSouthWest().lat(), vp.getSouthWest().lng()], ne = [vp.getNorthEast().lat(), vp.getNorthEast().lng()];
-    const nw = [ne[0], sw[1]], se = [sw[0], ne[1]];
-    // the road runs along the diagonal of its extent that passes closest to the road's own point
-    const [a, b] = segDist(loc, sw, ne) <= segDist(loc, nw, se) ? [sw, ne] : [nw, se];
-    const probe = { c: 'draft', sc: a, ec: b, v: [loc] };
-    let path;
-    try { path = (await fetchRoute(probe)).path; } catch (_) { path = [a, loc, b]; }
-    const first = path[0], last = path[path.length - 1];
-    const [start, end] = first[0] >= last[0] ? [first, last] : [last, first];     // start = northern end
+    const hits = (await nominatim('polygon_geojson=1&q=' + encodeURIComponent(name))).filter((r) => isRoad(r) && r.name === name && r.geojson);
+    const lines = hits.flatMap((r) => r.geojson.type === 'LineString' ? [r.geojson.coordinates]
+      : r.geojson.type === 'MultiLineString' ? r.geojson.coordinates : []).map((l) => l.map(([lng, lat]) => [lat, lng]));
+    if (!lines.length) throw new Error('No geometry');
+    const pts = lines.flat();
+    const [a, b] = extremes(pts);
     $('#f-code').value = nextCode(); $('#f-name').value = name; $('#f-color').value = nextColor();
-    showDraft(start, end, [loc], path);
+    showDraft(a, b, viaPoints(pts, a, b), lines);
     setMsg('Naming start and end…');
-    [$('#f-s').value, $('#f-e').value] = await Promise.all([placeName(start, 'Start'), placeName(end, 'End')]);
+    await sleep(1100);
+    $('#f-s').value = await placeName(a, 'Start');
+    await sleep(1100);
+    $('#f-e').value = await placeName(b, 'End');
     setMsg('');
-  } catch (err) { console.error(err); setMsg('Could not load that road. Try another result.', true); }
+  } catch (_) { setMsg('Could not load that road. Try another result.', true); }
 }
 
-$('#f-color').addEventListener('input', () => draft?.line?.setOptions({ strokeColor: $('#f-color').value }));
+$('#f-color').addEventListener('input', () => draft?.lines?.forEach((l) => l.setStyle({ color: $('#f-color').value })));
 $('#f-swap').onclick = () => {
   if (!draft?.mS) return;
-  const s = draft.mS.getPosition(), e = draft.mE.getPosition();
-  draft.mS.setPosition(e); draft.mE.setPosition(s);
+  const s = draft.mS.getLatLng(), e = draft.mE.getLatLng();
+  draft.mS.setLatLng(e); draft.mE.setLatLng(s); draft.via = [...draft.via].reverse();
   [$('#f-s').value, $('#f-e').value] = [$('#f-e').value, $('#f-s').value];
 };
 $('#f-cancel').onclick = $('#f-cancel2').onclick = closePanel;
@@ -525,7 +529,8 @@ $('#f-save').onclick = async () => {
   if (!c || !n) return setMsg('Enter a road code and a name.', true);
   if (ROADS.some((r) => r.c === c && r.id !== draft.id)) return setMsg(`The code ${c} is already used.`, true);
   const data = { c, n, k: $('#f-color').value, kn: 'Custom', s: $('#f-s').value.trim() || 'Start', e: $('#f-e').value.trim() || 'End',
-    sc: toObj(markerPos(draft.mS)), ec: toObj(markerPos(draft.mE)), v: draft.via.map(toObj) };
+    sc: toObj([draft.mS.getLatLng().lat, draft.mS.getLatLng().lng]),
+    ec: toObj([draft.mE.getLatLng().lat, draft.mE.getLatLng().lng]), v: draft.via.map(toObj) };
   setMsg('Saving…');
   try {
     if (draft.id) await setDoc(doc(db, COLLECTION, draft.id), data); else await addDoc(collection(db, COLLECTION), data);
@@ -534,7 +539,7 @@ $('#f-save').onclick = async () => {
 };
 
 /* =====================================================================
-   10. PRINT  (map fills the whole page on the chosen paper)
+   10. PRINT
    ===================================================================== */
 function applyPageSize() {
   const [a, b] = CONFIG.paperMm[$('#paper').value];
@@ -544,19 +549,15 @@ function applyPageSize() {
   document.documentElement.style.setProperty('--page-w', (w - 2 * m) + 'mm');
   document.documentElement.style.setProperty('--page-h', (h - 2 * m - 1) + 'mm');
 }
-function enterPrintMode() {
-  document.body.classList.add('print-mode');
-  applyPageSize(); iw.close();
-  google.maps.event.trigger(map, 'resize'); fitAll();
-}
-function leavePrintMode() { document.body.classList.remove('print-mode'); google.maps.event.trigger(map, 'resize'); }
+function enterPrintMode() { document.body.classList.add('print-mode'); applyPageSize(); map.closePopup(); map.invalidateSize(); fitAll(); }
+function leavePrintMode() { document.body.classList.remove('print-mode'); map.invalidateSize(); }
 
 $('#btn-print').onclick = async () => {
   const button = $('#btn-print');
   enterPrintMode();
   button.textContent = 'Preparing…';
-  await new Promise((resolve) => { google.maps.event.addListenerOnce(map, 'idle', resolve); setTimeout(resolve, 3000); });
-  await sleep(800);
+  await new Promise((resolve) => { basemap.once('load', resolve); setTimeout(resolve, 2500); });
+  await sleep(500);
   button.textContent = 'Print';
   window.print();
 };
