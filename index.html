@@ -202,7 +202,7 @@ function renderLegend() {
     button.addEventListener('click', async (event) => {
       L.DomEvent.stop(event);
       const road = ROADS.find((r) => r.id === button.dataset.roadId);
-      if (!road || !confirm(`Delete ${road.c} · ${road.n}?`)) return;
+      if (!road) return;
       button.disabled = true;
       try { await deleteDoc(doc(db, COLLECTION, road.id)); }
       catch (err) { button.disabled = false; alert('Could not delete: ' + err.message); }
@@ -359,7 +359,6 @@ function selectRoad(road, at) {
   const el = popup.getElement();
   el.querySelector('#edit-road')?.addEventListener('click', () => openPanel(road));
   el.querySelector('#del-road')?.addEventListener('click', async () => {
-    if (!confirm(`Delete ${road.c} · ${road.n}?`)) return;
     try { await deleteDoc(doc(db, COLLECTION, road.id)); } catch (err) { alert('Could not delete: ' + err.message); }
   });
 }
