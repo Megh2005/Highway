@@ -26,8 +26,11 @@
   .box { background: rgba(255,255,255,.95); border: 1px solid #333; }
   .legend { padding: 5px 8px 4px; font-size: 10px; line-height: 1.5; color: #111; max-height: 55vh; overflow: auto; }
   .legend h4 { margin: 0 0 2px; padding-bottom: 2px; border-bottom: 1px solid #999; font-size: 10.5px; }
-  .legend div { white-space: nowrap; }
+  .legend .legend-row { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .legend .legend-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .legend i { display: inline-block; width: 18px; height: 4px; margin-right: 5px; vertical-align: middle; }
+  .legend-delete { padding: 0 4px; border-color: #b91c1c; color: #b91c1c; font-size: 11px; line-height: 1.1; }
+  .legend-delete:disabled { cursor: wait; opacity: .6; }
   .north { padding: 2px 7px 0; text-align: center; font: 700 11px/1.1 "Segoe UI", sans-serif; }
   .north svg { display: block; margin: 0 auto; }
   .toolbar { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 4px; border-radius: 3px; max-width: calc(100vw - 90px); }
@@ -190,7 +193,21 @@ function addControl(position, build) {
 let legendEl;
 addControl('bottomleft', () => (legendEl = L.DomUtil.create('div', 'box legend')));
 function renderLegend() {
-  legendEl.innerHTML = '<h4>Legend</h4>' + ROADS.map((r) => `<div><i style="background:${r.k}"></i><b>${esc(r.c)}</b> ${esc(r.n)}</div>`).join('');
+  legendEl.innerHTML = '<h4>Legend</h4>' + ROADS.map((r) =>
+    `<div class="legend-row"><span class="legend-name"><i style="background:${r.k}"></i><b>${esc(r.c)}</b> ${esc(r.n)}</span>` +
+    (r.custom ? `<button type="button" class="legend-delete" data-road-id="${esc(r.id)}" aria-label="Delete ${esc(r.n)}">×</button>` : '') +
+    '</div>').join('');
+
+  legendEl.querySelectorAll('.legend-delete').forEach((button) => {
+    button.addEventListener('click', async (event) => {
+      L.DomEvent.stop(event);
+      const road = ROADS.find((r) => r.id === button.dataset.roadId);
+      if (!road || !confirm(`Delete ${road.c} · ${road.n}?`)) return;
+      button.disabled = true;
+      try { await deleteDoc(doc(db, COLLECTION, road.id)); }
+      catch (err) { button.disabled = false; alert('Could not delete: ' + err.message); }
+    });
+  });
 }
 
 addControl('topright', () => {
