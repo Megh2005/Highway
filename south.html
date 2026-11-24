@@ -452,9 +452,7 @@
             /* =====================================================================
                2. ROAD DATA  –  built-in roads (custom ones are added from Firestore)
                ===================================================================== */
-            const ROADS = [
-                { c: 'R10', n: 'EM Bypass', kn: 'Blue', k: '#2563EB', s: 'Ultadanga crossing', sc: [22.591411, 88.393388], e: 'Kamalgazi crossing', ec: [22.449438, 88.390871] }
-            ];
+            const ROADS = [];
 
             /* =====================================================================
                3. HELPERS
@@ -600,7 +598,11 @@
                 if (selected === road) setHighlight(road, true);
             }
 
-            function fitAll() { map.fitBounds(L.latLngBounds(ROADS.flatMap((r) => r.path)), { padding: CONFIG.fitPadding }); }
+            function fitAll() {
+                const paths = ROADS.flatMap((r) => r.path || []);
+                if (!paths.length) return map.setView([22.55, 88.36], 11);
+                map.fitBounds(L.latLngBounds(paths), { padding: CONFIG.fitPadding });
+            }
 
             function setStatus() {
                 $('#status').textContent = dbNote || (pending ? `Routing ${pending} left…` :
