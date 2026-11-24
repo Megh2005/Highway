@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>South Kolkata Road Mesh</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+  <style>
+    :root {
+      --ink: #17212b;
+      --muted: #526170;
+      --red: #dc2626;
+      --blue: #2563eb;
+    }
+
+    * { box-sizing: border-box; }
+    html, body, #map { height: 100%; margin: 0; }
+    body { color: var(--ink); font: 14px/1.4 "Segoe UI", system-ui, sans-serif; }
+    #map { background: #e8edf1; }
+
+    .panel {
+      position: fixed;
+      z-index: 1000;
+      top: 12px;
+      left: 12px;
+      width: min(390px, calc(100vw - 24px));
+      padding: 12px 14px;
+      background: rgba(255, 255, 255, .95);
+      border: 1px solid #77828c;
+      border-radius: 4px;
+      box-shadow: 0 3px 14px rgba(0, 0, 0, .2);
+    }
+
+    h1 { margin: 0 0 3px; font-size: 18px; }
+    .subtitle { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+    .legend { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 8px; }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+    .swatch { width: 27px; height: 5px; border-radius: 3px; }
+    .road-list { margin: 0; padding: 0; list-style: none; }
+    .road-list li { display: flex; gap: 6px; align-items: baseline; padding: 2px 0; }
+    .road-list .lanes { min-width: 46px; color: var(--muted); font-size: 11px; }
+    .road-list .road-name { font-weight: 600; }
+    .road-list .road-name.red { color: var(--red); }
+    .road-list .road-name.blue { color: var(--blue); }
+
+    .road-label {
+      padding: 2px 5px;
+      border: 1px solid currentColor;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, .9);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, .15);
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .leaflet-control-attribution { font-size: 10px; }
+  </style>
+</head>
+<body>
+  <div id="map" aria-label="Map of selected South Kolkata roads"></div>
+  <aside class="panel">
+    <h1>South Kolkata Road Mesh</h1>
+    <p class="subtitle">Selected roads marked by lane structure</p>
+    <div class="legend" aria-label="Road colour legend">
+      <div class="legend-item"><span class="swatch" style="background: var(--red)"></span>3 lanes</div>
+      <div class="legend-item"><span class="swatch" style="background: var(--blue)"></span>2 lanes</div>
+    </div>
+    <ul class="road-list">
+      <li><span class="lanes">3 lanes</span><span class="road-name red">James Long Sarani</span></li>
+      <li><span class="lanes">3 lanes</span><span class="road-name red">Deshapran Sasmal Road</span></li>
+      <li><span class="lanes">3 lanes</span><span class="road-name red">Raja Subodh Chandra Mullick Road</span></li>
+      <li><span class="lanes">3 lanes</span><span class="road-name red">Ballygunge Circular Road</span></li>
+      <li><span class="lanes">2 lanes</span><span class="road-name blue">Netaji Subhas Chandra Bose Road</span></li>
+      <li><span class="lanes">2-3 lanes</span><span class="road-name blue">Taratala Road</span></li>
+      <li><span class="lanes">2 lanes</span><span class="road-name blue">Chetla Central Road</span></li>
+      <li><span class="lanes">2 lanes</span><span class="road-name blue">Santoshpur Avenue</span></li>
+    </ul>
+  </aside>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+  <script>
+    const roads = [
+      {
+        name: 'Netaji Subhas Chandra Bose (NSC Bose) Road',
+        lanes: '2 lanes',
+        color: '#2563eb',
+        path: [[22.497, 88.343], [22.489, 88.350], [22.480, 88.359], [22.469, 88.374], [22.458, 88.386]]
+      },
+      {
+        name: 'Taratala Road (inner stretches)',
+        lanes: '2 to 3 lanes',
+        color: '#2563eb',
+        path: [[22.500, 88.302], [22.505, 88.311], [22.510, 88.320], [22.514, 88.329]]
+      },
+      {
+        name: 'James Long Sarani',
+        lanes: '3 lanes',
+        color: '#dc2626',
+        path: [[22.510, 88.327], [22.499, 88.320], [22.488, 88.311], [22.477, 88.304], [22.466, 88.298]]
+      },
+      {
+        name: 'Deshapran Sasmal Road',
+        lanes: '3 lanes',
+        color: '#dc2626',
+        path: [[22.520, 88.354], [22.512, 88.351], [22.504, 88.348], [22.496, 88.345]]
+      },
+      {
+        name: 'Chetla Central Road',
+        lanes: '2 lanes',
+        color: '#2563eb',
+        path: [[22.528, 88.331], [22.526, 88.338], [22.522, 88.344], [22.518, 88.349]]
+      },
+      {
+        name: 'Raja Subodh Chandra Mullick Road (Jadavpur-Garia stretch)',
+        lanes: '3 lanes',
+        color: '#dc2626',
+        path: [[22.499, 88.369], [22.490, 88.372], [22.480, 88.376], [22.470, 88.380], [22.460, 88.385]]
+      },
+      {
+        name: 'Santoshpur Avenue',
+        lanes: '2 lanes',
+        color: '#2563eb',
+        path: [[22.499, 88.369], [22.495, 88.378], [22.491, 88.388], [22.486, 88.398]]
+      },
+      {
+        name: 'Ballygunge Circular Road',
+        lanes: '3 lanes',
+        color: '#dc2626',
+        path: [[22.532, 88.365], [22.527, 88.368], [22.522, 88.369], [22.517, 88.368]]
+      }
+    ];
+
+    const map = L.map('map', { zoomControl: true });
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    const bounds = L.latLngBounds([]);
+    roads.forEach((road) => {
+      const lineOptions = {
+        color: road.color,
+        weight: 8,
+        opacity: .28,
+        lineCap: 'round',
+        lineJoin: 'round'
+      };
+      L.polyline(road.path, lineOptions).addTo(map);
+      const line = L.polyline(road.path, {
+        ...lineOptions,
+        weight: 4,
+        opacity: 1
+      }).addTo(map);
+      line.bindPopup('<strong>' + road.name + '</strong><br>' + road.lanes);
+      line.bindTooltip(road.name, { sticky: true });
+      const middle = road.path[Math.floor(road.path.length / 2)];
+      L.marker(middle, {
+        interactive: false,
+        icon: L.divIcon({
+          className: 'road-label',
+          html: '<span style="color:' + road.color + '">' + road.name + '</span>',
+          iconSize: null
+        })
+      }).addTo(map);
+      road.path.forEach((point) => bounds.extend(point));
+    });
+
+    map.fitBounds(bounds, { paddingTopLeft: [420, 30], paddingBottomRight: [30, 30] });
+  </script>
+</body>
+</html>
