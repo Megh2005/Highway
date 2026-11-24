@@ -494,7 +494,11 @@
             let legendEl;
             addControl('bottomleft', () => (legendEl = L.DomUtil.create('div', 'box legend')));
             function renderLegend() {
-                legendEl.innerHTML = '<h4>Legend</h4>' + ROADS.map((r) =>
+                const legendRoads = [...ROADS].sort((a, b) =>
+                    String(a.n).localeCompare(String(b.n), undefined, { sensitivity: 'base', numeric: true }) ||
+                    String(a.c).localeCompare(String(b.c), undefined, { sensitivity: 'base', numeric: true })
+                );
+                legendEl.innerHTML = '<h4>Legend</h4>' + legendRoads.map((r) =>
                     `<div class="legend-row"><span class="legend-name"><i style="background:${r.k}"></i><b>${esc(r.c)}</b> ${esc(r.n)}</span>` +
                     (r.custom ? `<button type="button" class="legend-delete" data-road-id="${esc(r.id)}" aria-label="Delete ${esc(r.n)}">×</button>` : '') +
                     '</div>').join('');
