@@ -126,7 +126,7 @@ const firebaseConfig = {
   appId: "1:705456952090:web:78b3965a48d23073fd92a3"
 };
 const db = getFirestore(initializeApp(firebaseConfig));
-const COLLECTION = 'highways';   // custom roads are stored here
+const COLLECTION = 'south';   // South Kolkata roads are stored here
 
 const CONFIG = {
   tileUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -149,15 +149,16 @@ const CONFIG = {
 /* =====================================================================
    2. ROAD DATA  –  built-in roads (custom ones are added from Firestore)
    ===================================================================== */
-const ROADS = [
-   { c: 'R11', n: 'Netaji Subhas Chandra Bose (NSC Bose) Road', kn: 'Blue', k: '#2563EB', s: 'Tollygunge', sc: [22.497, 88.343], e: 'Garia', ec: [22.458, 88.386] },
-   { c: 'R12', n: 'Taratala Road (inner stretches)',            kn: 'Blue', k: '#2563EB', s: 'Behala', sc: [22.500, 88.302], e: 'Majerhat', ec: [22.514, 88.329] },
-   { c: 'R13', n: 'James Long Sarani',                         kn: 'Red',  k: '#DC2626', s: 'New Alipore', sc: [22.510, 88.327], e: 'Thakurpukur', ec: [22.466, 88.298] },
-   { c: 'R14', n: 'Deshapran Sasmal Road',                     kn: 'Red',  k: '#DC2626', s: 'Rashbehari', sc: [22.520, 88.354], e: 'Tollygunge', ec: [22.496, 88.345] },
-   { c: 'R15', n: 'Chetla Central Road',                       kn: 'Blue', k: '#2563EB', s: 'Alipore', sc: [22.528, 88.331], e: 'Kalighat', ec: [22.518, 88.349] },
-   { c: 'R16', n: 'Raja Subodh Chandra Mullick Road (Jadavpur-Garia stretch)', kn: 'Red', k: '#DC2626', s: 'Jadavpur', sc: [22.499, 88.369], e: 'Garia', ec: [22.460, 88.385] },
-   { c: 'R17', n: 'Santoshpur Avenue',                         kn: 'Blue', k: '#2563EB', s: 'Jadavpur', sc: [22.499, 88.369], e: 'EM Bypass', ec: [22.486, 88.398] },
-   { c: 'R18', n: 'Ballygunge Circular Road',                  kn: 'Red',  k: '#DC2626', s: 'Ballygunge', sc: [22.532, 88.365], e: 'Gariahat', ec: [22.517, 88.368] }
+const ROADS = [];
+const SOUTH_ROADS = [
+   { id: 'R11', c: 'R11', n: 'Netaji Subhas Chandra Bose (NSC Bose) Road', kn: 'Blue', k: '#2563EB', s: 'Tollygunge', sc: [22.497, 88.343], e: 'Garia', ec: [22.458, 88.386] },
+   { id: 'R12', c: 'R12', n: 'Taratala Road (inner stretches)', kn: 'Blue', k: '#2563EB', s: 'Behala', sc: [22.500, 88.302], e: 'Majerhat', ec: [22.514, 88.329] },
+   { id: 'R13', c: 'R13', n: 'James Long Sarani', kn: 'Red', k: '#DC2626', s: 'New Alipore', sc: [22.510, 88.327], e: 'Thakurpukur', ec: [22.466, 88.298] },
+   { id: 'R14', c: 'R14', n: 'Deshapran Sasmal Road', kn: 'Red', k: '#DC2626', s: 'Rashbehari', sc: [22.520, 88.354], e: 'Tollygunge', ec: [22.496, 88.345] },
+   { id: 'R15', c: 'R15', n: 'Chetla Central Road', kn: 'Blue', k: '#2563EB', s: 'Alipore', sc: [22.528, 88.331], e: 'Kalighat', ec: [22.518, 88.349] },
+   { id: 'R16', c: 'R16', n: 'Raja Subodh Chandra Mullick Road (Jadavpur-Garia stretch)', kn: 'Red', k: '#DC2626', s: 'Jadavpur', sc: [22.499, 88.369], e: 'Garia', ec: [22.460, 88.385] },
+   { id: 'R17', c: 'R17', n: 'Santoshpur Avenue', kn: 'Blue', k: '#2563EB', s: 'Jadavpur', sc: [22.499, 88.369], e: 'EM Bypass', ec: [22.486, 88.398] },
+   { id: 'R18', c: 'R18', n: 'Ballygunge Circular Road', kn: 'Red', k: '#DC2626', s: 'Ballygunge', sc: [22.532, 88.365], e: 'Gariahat', ec: [22.517, 88.368] }
 ];
 
 /* =====================================================================
@@ -381,8 +382,19 @@ const fromDoc = (d) => {
     sc: toArr(x.sc), ec: toArr(x.ec), v: (x.v || []).map(toArr) };
 };
 
+let seedStarted = false;
 onSnapshot(collection(db, COLLECTION), (snap) => {
   dbNote = '';
+  if (snap.empty && !seedStarted) {
+    seedStarted = true;
+    Promise.all(SOUTH_ROADS.map((road) => setDoc(doc(db, COLLECTION, road.id), {
+      c: road.c, n: road.n, kn: road.kn, k: road.k, s: road.s, e: road.e,
+      sc: toObj(road.sc), ec: toObj(road.ec), v: []
+    }))).catch((err) => {
+      dbNote = 'Database seed error: ' + err.message;
+      setStatus();
+    });
+  }
   const ids = new Set(snap.docs.map((d) => d.id));
   ROADS.filter((r) => r.custom && !ids.has(r.id)).forEach(removeRoad);
   snap.docs.forEach((d) => {
@@ -582,10 +594,7 @@ applyPageSize();
 /* =====================================================================
    11. START-UP
    ===================================================================== */
-const builtIn = ROADS.splice(0);
-builtIn.forEach(addRoad);
 renderLegend();
-fitAll();
 </script>
 </body>
 </html>
